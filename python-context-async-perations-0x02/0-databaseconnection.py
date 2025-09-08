@@ -72,7 +72,7 @@ def main():
     try:
         with DatabaseConnection() as cursor:
             # Execute the SELECT query for users
-            cursor.execute("SELECT * FROM User")
+            cursor.execute("SELECT * FROM users")
             results = cursor.fetchall()
             
             # Print the results
