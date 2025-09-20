@@ -64,6 +64,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Test that _public_repos_url returns the expected URL from mocked org payload
 - Demonstrate how to mock properties created by the memoize decorator
 
+### Task 6: More patching
+- Implement test_public_repos method in TestGithubOrgClient class
+- Use @patch as decorator to mock get_json with custom payload
+- Use patch as context manager to mock _public_repos_url property
+- Test that public_repos returns expected list of repository names
+- Verify that both mocked property and mocked get_json are called exactly once
+
 ## Usage
 
 To run the tests:
