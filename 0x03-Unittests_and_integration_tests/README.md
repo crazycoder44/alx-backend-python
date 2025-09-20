@@ -85,6 +85,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Implement tearDownClass to properly stop the patcher
 - Set up integration test framework for testing with real-like data payloads
 
+### Task 9: Integration tests
+- Implement test_public_repos method in TestIntegrationGithubOrgClient class
+- Test that public_repos returns expected list of repositories from fixtures
+- Implement test_public_repos_with_license method to test license filtering
+- Test that public_repos with apache-2.0 license filter returns correct repos
+- Verify integration between GithubOrgClient methods using realistic fixtures
+
 ## Usage
 
 To run the tests:
