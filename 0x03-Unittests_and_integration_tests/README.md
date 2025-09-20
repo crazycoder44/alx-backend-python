@@ -37,6 +37,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Verify that correct exception messages are raised for invalid paths
 - Test with empty nested_map and invalid nested paths
 
+### Task 2: Mock HTTP calls
+- Create TestGetJson class that inherits from unittest.TestCase
+- Implement test_get_json method to test utils.get_json function
+- Use unittest.mock.patch to mock requests.get and avoid actual HTTP calls
+- Test that mocked get method is called exactly once with correct URL
+- Verify that get_json returns the expected payload from the mock
+
 ## Usage
 
 To run the tests:
