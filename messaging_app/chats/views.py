@@ -108,10 +108,24 @@ class MessageViewSet(viewsets.ModelViewSet):
     filter_backends = [filters.SearchFilter]
     search_fields = ['sender__email', 'message_body', 'conversation__conversation_id']
 
+    def get_queryset(self):
+        """Filter messages by conversation if accessing via nested route."""
+        queryset = super().get_queryset()
+        conversation_pk = self.kwargs.get('conversation_pk')
+        
+        if conversation_pk:
+            # Filter messages for specific conversation when accessing nested route
+            queryset = queryset.filter(conversation__conversation_id=conversation_pk)
+        
+        return queryset
+
     def create(self, request, *args, **kwargs):
         """Send a message to an existing conversation."""
+        # Check if we're accessing via nested route
+        conversation_pk = self.kwargs.get('conversation_pk')
+        
         sender_id = request.data.get('sender_id')
-        conversation_id = request.data.get('conversation')
+        conversation_id = conversation_pk or request.data.get('conversation')
         message_body = request.data.get('message_body')
         message_type = request.data.get('message_type', 'text')
         
@@ -210,4 +224,5 @@ class MessageViewSet(viewsets.ModelViewSet):
             'messages': serializer.data,
             'count': unread_messages.count()
         })
+
 
