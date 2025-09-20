@@ -31,6 +31,12 @@ This project focuses on understanding and implementing unit tests and integratio
 - Implement test_access_nested_map method using @parameterized.expand decorator
 - Test the access_nested_map function with different inputs
 
+### Task 1: Parameterize a unit test for exceptions
+- Implement TestAccessNestedMap.test_access_nested_map_exception method
+- Use assertRaises context manager to test KeyError exceptions
+- Verify that correct exception messages are raised for invalid paths
+- Test with empty nested_map and invalid nested paths
+
 ## Usage
 
 To run the tests:
