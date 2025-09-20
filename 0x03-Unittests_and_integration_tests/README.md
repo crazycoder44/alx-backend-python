@@ -51,6 +51,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Use unittest.mock.patch to mock a_method and verify memoization behavior
 - Test that a_property returns correct result and a_method is called only once
 
+### Task 4: Parameterize and patch as decorators
+- Create new test_client.py file with TestGithubOrgClient class
+- Implement test_org method to test GithubOrgClient.org property
+- Use @patch as decorator to mock get_json and prevent HTTP calls
+- Use @parameterized.expand as decorator to test with multiple org names
+- Verify that get_json is called once with correct URL and returns expected value
+
 ## Usage
 
 To run the tests:
