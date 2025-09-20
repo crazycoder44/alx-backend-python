@@ -78,6 +78,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Parameterize both input values and expected return values
 - Verify that has_license correctly identifies matching and non-matching licenses
 
+### Task 8: Integration test: fixtures
+- Create TestIntegrationGithubOrgClient class for integration testing
+- Use @parameterized_class decorator with fixtures from fixtures.py
+- Implement setUpClass to mock requests.get with side_effect for different URLs
+- Implement tearDownClass to properly stop the patcher
+- Set up integration test framework for testing with real-like data payloads
+
 ## Usage
 
 To run the tests:
