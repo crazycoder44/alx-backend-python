@@ -71,6 +71,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Test that public_repos returns expected list of repository names
 - Verify that both mocked property and mocked get_json are called exactly once
 
+### Task 7: Parameterize
+- Implement test_has_license method in TestGithubOrgClient class
+- Use @parameterized.expand to test GithubOrgClient.has_license static method
+- Test with different repo license configurations and license keys
+- Parameterize both input values and expected return values
+- Verify that has_license correctly identifies matching and non-matching licenses
+
 ## Usage
 
 To run the tests:
