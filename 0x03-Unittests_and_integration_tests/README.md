@@ -58,6 +58,12 @@ This project focuses on understanding and implementing unit tests and integratio
 - Use @parameterized.expand as decorator to test with multiple org names
 - Verify that get_json is called once with correct URL and returns expected value
 
+### Task 5: Mocking a property
+- Implement test_public_repos_url method in TestGithubOrgClient class
+- Use patch as context manager to mock GithubOrgClient.org property
+- Test that _public_repos_url returns the expected URL from mocked org payload
+- Demonstrate how to mock properties created by the memoize decorator
+
 ## Usage
 
 To run the tests:
