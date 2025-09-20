@@ -46,6 +46,8 @@ class User(AbstractUser):
     )
     
     created_at = models.DateTimeField(auto_now_add=True)
+    password = models.CharField(max_length=128, null=False)
+
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
@@ -55,6 +57,9 @@ class User(AbstractUser):
             models.Index(fields=['role']),
             models.Index(fields=['created_at']),
         ]
+
+    USERNAME_FIELD = 'email'
+
     
     def __str__(self):
         return f"{self.get_full_name()} ({self.email})"
