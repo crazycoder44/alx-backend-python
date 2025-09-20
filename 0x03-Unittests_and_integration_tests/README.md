@@ -44,6 +44,13 @@ This project focuses on understanding and implementing unit tests and integratio
 - Test that mocked get method is called exactly once with correct URL
 - Verify that get_json returns the expected payload from the mock
 
+### Task 3: Parameterize and patch
+- Create TestMemoize class that inherits from unittest.TestCase
+- Implement test_memoize method to test the memoize decorator
+- Define a TestClass with a_method and memoized a_property inside the test
+- Use unittest.mock.patch to mock a_method and verify memoization behavior
+- Test that a_property returns correct result and a_method is called only once
+
 ## Usage
 
 To run the tests:
