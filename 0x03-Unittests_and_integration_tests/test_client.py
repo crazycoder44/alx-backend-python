@@ -21,10 +21,10 @@ class TestGithubOrgClient(unittest.TestCase):
         """
         test_payload = {"org": org_name}
         mock_get_json.return_value = test_payload
-        
+
         client = GithubOrgClient(org_name)
         result = client.org
-        
+
         expected_url = f"https://api.github.com/orgs/{org_name}"
         mock_get_json.assert_called_once_with(expected_url)
         self.assertEqual(result, test_payload)
@@ -34,8 +34,10 @@ class TestGithubOrgClient(unittest.TestCase):
         """
         expected_repos_url = "https://api.github.com/orgs/test/repos"
         payload = {"repos_url": expected_repos_url}
-        
-        with patch.object(GithubOrgClient, 'org', new_callable=lambda: payload):
+
+        with patch.object(
+            GithubOrgClient, 'org', new_callable=lambda: payload
+        ):
             client = GithubOrgClient("test")
             result = client._public_repos_url
             self.assertEqual(result, expected_repos_url)
@@ -50,14 +52,14 @@ class TestGithubOrgClient(unittest.TestCase):
             {"name": "repo3"},
         ]
         mock_get_json.return_value = test_payload
-        
+
         with patch.object(
             GithubOrgClient, '_public_repos_url',
             new_callable=lambda: "https://api.github.com/orgs/test/repos"
         ) as mock_public_repos_url:
             client = GithubOrgClient("test")
             result = client.public_repos()
-            
+
             expected_repos = ["repo1", "repo2", "repo3"]
             self.assertEqual(result, expected_repos)
             mock_public_repos_url.assert_called_once()
