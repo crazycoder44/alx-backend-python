@@ -2,12 +2,10 @@ from rest_framework import serializers
 from .models import User, Conversation, Message
 
 
-from rest_framework import serializers
-
 # User Serializer
 class UserSerializer(serializers.ModelSerializer):
-    full_name = serializers.SerializerMethodField(read_only=True)
-    conversation_count = serializers.SerializerMethodField(read_only=True)
+    full_name = serializers.SerializerMethodField()
+    conversation_count = serializers.SerializerMethodField()
     password = serializers.CharField(write_only=True, required=False, min_length=8)
     password_confirm = serializers.CharField(write_only=True, required=False)
 
@@ -48,12 +46,12 @@ class UserSerializer(serializers.ModelSerializer):
             user.save()
         return user
 
-# Message Serializer
 
+# Message Serializer
 class MessageSerializer(serializers.ModelSerializer):
     sender = UserSerializer(read_only=True)
     sender_id = serializers.UUIDField(write_only=True, required=False)
-    preview = serializers.SerializerMethodField(read_only=True)
+    preview = serializers.SerializerMethodField()
 
     class Meta:
         model = Message
@@ -68,14 +66,14 @@ class MessageSerializer(serializers.ModelSerializer):
         return obj.message_body[:50] + '...' if len(obj.message_body) > 50 else obj.message_body
 
     def validate_sender_id(self, value):
-        if not User.objects.filter(user_id=value).exists():
+        if not User.objects.filter(id=value).exists():
             raise serializers.ValidationError("Invalid sender ID.")
         return value
 
     def create(self, validated_data):
         sender_id = validated_data.pop('sender_id', None)
         if sender_id:
-            validated_data['sender'] = User.objects.get(user_id=sender_id)
+            validated_data['sender'] = User.objects.get(id=sender_id)
         return super().create(validated_data)
 
 
@@ -88,12 +86,12 @@ class ConversationSerializer(serializers.ModelSerializer):
         required=False,
         help_text="List of user IDs to include in the conversation"
     )
-    participant_count = serializers.SerializerMethodField(read_only=True)
-    last_message = serializers.SerializerMethodField(read_only=True)
-    unread_count = serializers.SerializerMethodField(read_only=True)
-    messages = serializers.SerializerMethodField(many=True, read_only=True)
-    message_count = serializers.SerializerMethodField(read_only=True)
-    recent_messages = serializers.SerializerMethodField(read_only=True)
+    participant_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    messages = serializers.SerializerMethodField()
+    message_count = serializers.SerializerMethodField()
+    recent_messages = serializers.SerializerMethodField()
 
     class Meta:
         model = Conversation
@@ -126,6 +124,10 @@ class ConversationSerializer(serializers.ModelSerializer):
             return obj.messages.filter(is_read=False).exclude(sender=request.user).count()
         return 0
 
+    def get_messages(self, obj):
+        messages = obj.messages.select_related('sender').order_by('sent_at')
+        return MessageSerializer(messages, many=True, context=self.context).data
+
     def get_message_count(self, obj):
         return obj.messages.count()
 
@@ -135,9 +137,9 @@ class ConversationSerializer(serializers.ModelSerializer):
 
     def validate_participant_ids(self, value):
         value = list(set(value))  # remove duplicates
-        existing_users = User.objects.filter(user_id__in=value)
+        existing_users = User.objects.filter(id__in=value)
         if existing_users.count() != len(value):
-            invalid_ids = set(value) - set(existing_users.values_list('user_id', flat=True))
+            invalid_ids = set(value) - set(existing_users.values_list('id', flat=True))
             raise serializers.ValidationError(f"Invalid user IDs: {list(invalid_ids)}")
         return value
 
@@ -145,7 +147,7 @@ class ConversationSerializer(serializers.ModelSerializer):
         participant_ids = validated_data.pop('participant_ids', [])
         conversation = Conversation.objects.create(**validated_data)
         if participant_ids:
-            participants = User.objects.filter(user_id__in=participant_ids)
+            participants = User.objects.filter(id__in=participant_ids)
             conversation.participants.set(participants)
         return conversation
 
@@ -155,6 +157,6 @@ class ConversationSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
         if participant_ids is not None:
-            participants = User.objects.filter(user_id__in=participant_ids)
+            participants = User.objects.filter(id__in=participant_ids)
             instance.participants.set(participants)
         return instance
