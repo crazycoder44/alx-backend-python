@@ -1,7 +1,7 @@
 from rest_framework import viewsets, status
 from rest_framework.response import Response
-from rest_framework.decorators import action
 from django.shortcuts import get_object_or_404
+from rest_framework import filters
 
 from .models import Conversation, Message, CustomUser
 from .serializers import ConversationSerializer, MessageSerializer
@@ -9,12 +9,10 @@ from .serializers import ConversationSerializer, MessageSerializer
 class ConversationViewSet(viewsets.ModelViewSet):
     queryset = Conversation.objects.all()
     serializer_class = ConversationSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['participants__email', 'participants__first_name', 'participants__last_name']
 
     def create(self, request, *args, **kwargs):
-        """
-        Create a new conversation with participants.
-        Expected payload: { "participants": [user_id1, user_id2, ...] }
-        """
         participants_ids = request.data.get('participants', [])
         if not participants_ids:
             return Response({"error": "Participants list is required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -31,16 +29,10 @@ class ConversationViewSet(viewsets.ModelViewSet):
 class MessageViewSet(viewsets.ModelViewSet):
     queryset = Message.objects.all()
     serializer_class = MessageSerializer
+    filter_backends = [filters.SearchFilter]
+    search_fields = ['sender__email', 'message_body', 'conversation__conversation_id']
 
     def create(self, request, *args, **kwargs):
-        """
-        Send a message to an existing conversation.
-        Expected payload: {
-            "sender": user_id,
-            "conversation": conversation_id,
-            "message_body": "Your message here"
-        }
-        """
         sender_id = request.data.get('sender')
         conversation_id = request.data.get('conversation')
         message_body = request.data.get('message_body')

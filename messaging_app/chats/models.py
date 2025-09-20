@@ -97,7 +97,6 @@ class Conversation(models.Model):
         db_table = 'conversations'
         indexes = [
             models.Index(fields=['created_at']),
-            models.Index(fields=['is_active']),
         ]
         ordering = ['-updated_at']
     
