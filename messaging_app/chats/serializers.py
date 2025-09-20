@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from rest_framework.serializers import SerializerMethodField
 from .models import User, Conversation, Message
 
 
@@ -80,7 +81,6 @@ class MessageSerializer(serializers.ModelSerializer):
 
 
 # Conversation Serializers
-
 class ConversationSerializer(serializers.ModelSerializer):
     participants = UserSerializer(many=True, read_only=True)
     participant_ids = serializers.ListField(
@@ -94,7 +94,7 @@ class ConversationSerializer(serializers.ModelSerializer):
     unread_count = serializers.SerializerMethodField(read_only=True)
     messages = MessageSerializer(many=True, read_only=True)
     message_count = serializers.SerializerMethodField(read_only=True)
-    recent_messages = serializers.SerializerMethodField(read_only=True)
+    recent_messages = SerializerMethodField(read_only=True)
 
     class Meta:
         model = Conversation
