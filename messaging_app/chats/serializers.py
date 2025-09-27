@@ -172,30 +172,41 @@ class ConversationSerializer(serializers.ModelSerializer):
         return obj.messages.count()
 
     def validate_participant_ids(self, value):
+        """Ensure participants are valid, unique, and include creator."""
+        request = self.context.get('request')
+
         if not value:
-            return value
+            raise serializers.ValidationError("At least one participant must be specified.")
         
         value = list(set(value))  # remove duplicates
+
         existing_users = User.objects.filter(user_id__in=value)
-        if existing_users.count() != len(value):
-            invalid_ids = set(value) - set(existing_users.values_list('user_id', flat=True))
+        existing_ids = set(str(uid) for uid in existing_users.values_list("user_id", flat=True))
+
+        # Detect invalid IDs
+        invalid_ids = set(map(str, value)) - existing_ids
+        if invalid_ids:
             raise serializers.ValidationError(f"Invalid user IDs: {list(invalid_ids)}")
+
+        # Ensure current user is always a participant
+        if request and request.user.is_authenticated:
+            if str(request.user.user_id) not in existing_ids:
+                value.append(str(request.user.user_id))
         return value
 
     def create(self, validated_data):
         participant_ids = validated_data.pop('participant_ids', [])
         conversation = Conversation.objects.create(**validated_data)
 
-        # Add participants
-        if participant_ids:
-            participants = User.objects.filter(user_id__in=participant_ids)
-            conversation.participants.set(participants)
+        participants = list(User.objects.filter(user_id__in=participant_ids))
 
         # Ensure the current user (if available) is added as a participant
         request = self.context.get('request')
         if request and request.user.is_authenticated:
-            conversation.participants.add(request.user)
+            if request.user not in participants:
+                participants.append(request.user)
 
+        conversation.participants.set(participants)
         return conversation
 
     def update(self, instance, validated_data):
@@ -206,15 +217,17 @@ class ConversationSerializer(serializers.ModelSerializer):
             setattr(instance, attr, value)
         instance.save()
 
-        # Update participants if participants provided
+        # Update participants if provided
         if participant_ids is not None:
-            participants = User.objects.filter(user_id__in=participant_ids)
-            instance.participants.set(participants)
+            participants = list(User.objects.filter(user_id__in=participant_ids))
 
-            # Ensure the current user remains a participant
+            # Always keep the current user in the conversation
             request = self.context.get('request')
             if request and request.user.is_authenticated:
-                instance.participants.add(request.user)
+                if request.user not in participants:
+                    participants.append(request.user)
+
+            instance.participants.set(participants)
 
         return instance
     

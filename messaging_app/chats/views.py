@@ -1,11 +1,12 @@
 # views.py
-from rest_framework import viewsets, status
+from rest_framework import viewsets, status, permissions, filters
 from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from rest_framework import filters
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
+
 from .models import Conversation, Message, User as CustomUser
 from .serializers import ConversationSerializer, MessageSerializer
+from .permissions import IsOwnerOrParticipant, IsConversationParticipant
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -13,37 +14,30 @@ class ConversationViewSet(viewsets.ModelViewSet):
     ViewSet for managing conversations.
     Provides CRUD operations and conversation-specific actions.
     """
-    queryset = Conversation.objects.all()
     serializer_class = ConversationSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['participants__email', 'participants__first_name', 'participants__last_name']
+    permission_classes = [permissions.IsAuthenticated, IsConversationParticipant]
+
+    def get_queryset(self):
+        """Restrict conversations to only those the user participates in."""
+        user = self.request.user
+        return Conversation.objects.filter(participants=user).distinct()
+    
+    def get_object(self):
+        """Ensure object-level access only for participants."""
+        obj = super().get_object()
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def create(self, request, *args, **kwargs):
         """Create a new conversation with participants."""
-        participant_ids = request.data.get('participant_ids', [])
-        title = request.data.get('title', '')
-        
-        if not participant_ids:
-            return Response(
-                {"error": "participant_ids list is required."}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Validate that all participant IDs exist
-        participants = CustomUser.objects.filter(user_id__in=participant_ids)
-        if participants.count() != len(participant_ids):
-            return Response(
-                {"error": "One or more participant IDs are invalid."}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Create conversation
-        conversation = Conversation.objects.create()
-        conversation.participants.set(participants)
-        conversation.save()
-        
-        serializer = self.get_serializer(conversation)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        self.perform_create(serializer)
+        headers = self.get_success_headers(serializer.data)
+        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
+
 
     @action(detail=True, methods=['post'])
     def add_participant(self, request, pk=None):
@@ -103,28 +97,46 @@ class MessageViewSet(viewsets.ModelViewSet):
     ViewSet for managing messages.
     Provides CRUD operations and message-specific actions.
     """
-    queryset = Message.objects.all()
     serializer_class = MessageSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ['sender__email', 'message_body', 'conversation__conversation_id']
-
+    permission_classes = [permissions.IsAuthenticated, IsOwnerOrParticipant]
+    
     def get_queryset(self):
-        """Filter messages by conversation if accessing via nested route."""
-        queryset = super().get_queryset()
+        """Restrict messages to only those in conversations the user participates in."""
+        user = self.request.user
+        queryset = Message.objects.filter(conversation__participants=user).distinct()
+
+        # If nested under a conversation, filter further
         conversation_pk = self.kwargs.get('conversation_pk')
-        
         if conversation_pk:
-            # Filter messages for specific conversation when accessing nested route
+            # Ensure user is a participant of this conversation
+            if not Conversation.objects.filter(
+                conversation_id=conversation_pk, 
+                participants=user
+            ).exists():
+                raise PermissionDenied("You are not a participant in this conversation.")
             queryset = queryset.filter(conversation__conversation_id=conversation_pk)
-        
+
         return queryset
+    
+    def perform_update(self, serializer):
+        """Only sender can update their own message."""
+        message = self.get_object()
+        if message.sender != self.request.user:
+            raise PermissionDenied("You cannot edit someone else's message.")
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        """Only sender can delete their own message."""
+        if instance.sender != self.request.user:
+            raise PermissionDenied("You cannot delete someone else's message.")
+        instance.delete()
 
     def create(self, request, *args, **kwargs):
         """Send a message to an existing conversation."""
         # Check if we're accessing via nested route
-        conversation_pk = self.kwargs.get('conversation_pk')
-        if not conversation_pk:
-            conversation_pk = request.data.get('conversation')  # from body if general endpoint
+        conversation_pk = self.kwargs.get('conversation_pk') or request.data.get('conversation')
 
         if not conversation_pk:
             return Response(
@@ -134,7 +146,6 @@ class MessageViewSet(viewsets.ModelViewSet):
 
         message_body = request.data.get('message_body')
         message_type = request.data.get('message_type', 'text')
-
         
         if not message_body:
             return Response(
@@ -174,25 +185,18 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=['post'])
     def mark_read(self, request, pk=None):
-        """Mark a message as read."""
+        """Mark a message as read by the authenticated user."""
         message = self.get_object()
-        
-        # Don't allow marking own messages as read
-        user_id = request.data.get('user_id')
-        if not user_id:
-            return Response(
-                {'error': 'user_id is required'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        if str(message.sender.id) == str(user_id):
+        user = request.user
+
+        # Prevent marking own messages
+        if message.sender == user:
             return Response(
                 {'error': 'Cannot mark your own message as read'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # For simplicity, just update the is_read field
-        # In a more complex system, you'd track read status per user
+        # For now: simple global flag (could be extended to per-user read receipts)
         message.is_read = True
         message.save()
         
@@ -200,27 +204,13 @@ class MessageViewSet(viewsets.ModelViewSet):
 
     @action(detail=False, methods=['get'])
     def unread(self, request):
-        """Get unread messages for a specific user."""
-        user_id = request.query_params.get('user_id')
-        if not user_id:
-            return Response(
-                {'error': 'user_id parameter is required'}, 
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        """Get unread messages for the authenticated user only."""
+        user = request.user
         
-        try:
-            user = CustomUser.objects.get(user_id=user_id)
-        except CustomUser.DoesNotExist:
-            return Response(
-                {'error': 'User not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Get unread messages where user is a participant but not the sender
         unread_messages = Message.objects.filter(
             conversation__participants=user,
             is_read=False
-        ).exclude(sender=user).order_by('-sent_at')
+        ).exclude(sender=user).order_by('-sent_at').distinct()
         
         serializer = MessageSerializer(unread_messages, many=True)
         return Response({
