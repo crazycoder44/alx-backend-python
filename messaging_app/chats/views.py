@@ -3,10 +3,13 @@ from rest_framework import viewsets, status, permissions, filters
 from rest_framework.response import Response
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.decorators import action
+from django_filters.rest_framework import DjangoFilterBackend
 
 from .models import Conversation, Message, User as CustomUser
 from .serializers import ConversationSerializer, MessageSerializer
 from .permissions import IsOwnerOrParticipant, IsConversationParticipant
+from .filters import MessageFilter, ConversationFilter
+from .pagination import DefaultPagination
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -15,7 +18,9 @@ class ConversationViewSet(viewsets.ModelViewSet):
     Provides CRUD operations and conversation-specific actions.
     """
     serializer_class = ConversationSerializer
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_class = ConversationFilter
+    pagination_class = DefaultPagination
     search_fields = ['participants__email', 'participants__first_name', 'participants__last_name']
     permission_classes = [permissions.IsAuthenticated, IsConversationParticipant]
 
@@ -98,7 +103,9 @@ class MessageViewSet(viewsets.ModelViewSet):
     Provides CRUD operations and message-specific actions.
     """
     serializer_class = MessageSerializer
-    filter_backends = [filters.SearchFilter]
+    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
+    filterset_class = MessageFilter
+    pagination_class = DefaultPagination
     search_fields = ['sender__email', 'message_body', 'conversation__conversation_id']
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrParticipant]
     
