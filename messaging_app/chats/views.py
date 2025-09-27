@@ -9,7 +9,7 @@ from .models import Conversation, Message, User as CustomUser
 from .serializers import ConversationSerializer, MessageSerializer
 from .permissions import IsOwnerOrParticipant, IsConversationParticipant
 from .filters import MessageFilter, ConversationFilter
-from .pagination import DefaultPagination
+from .pagination import MessagePagination
 
 
 class ConversationViewSet(viewsets.ModelViewSet):
@@ -20,7 +20,6 @@ class ConversationViewSet(viewsets.ModelViewSet):
     serializer_class = ConversationSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = ConversationFilter
-    pagination_class = DefaultPagination
     search_fields = ['participants__email', 'participants__first_name', 'participants__last_name']
     permission_classes = [permissions.IsAuthenticated, IsConversationParticipant]
 
@@ -105,7 +104,7 @@ class MessageViewSet(viewsets.ModelViewSet):
     serializer_class = MessageSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     filterset_class = MessageFilter
-    pagination_class = DefaultPagination
+    pagination_class = MessagePagination
     search_fields = ['sender__email', 'message_body', 'conversation__conversation_id']
     permission_classes = [permissions.IsAuthenticated, IsOwnerOrParticipant]
     
