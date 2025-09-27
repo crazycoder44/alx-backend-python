@@ -1,3 +1,5 @@
+# chats/serializers.py
+
 from rest_framework import serializers
 from .models import User, Conversation, Message
 
@@ -12,11 +14,11 @@ class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
         fields = [
-            'id', 'username', 'first_name', 'last_name', 'full_name',
+            'user_id', 'username', 'first_name', 'last_name', 'full_name',
             'email', 'phone_number', 'role', 'created_at', 'updated_at',
             'conversation_count', 'password', 'password_confirm'
         ]
-        read_only_fields = ['id', 'created_at', 'updated_at', 'full_name', 'conversation_count']
+        read_only_fields = ['user_id', 'created_at', 'updated_at', 'full_name', 'conversation_count']
         extra_kwargs = {
             'email': {'required': True},
             'first_name': {'required': True},
@@ -24,7 +26,7 @@ class UserSerializer(serializers.ModelSerializer):
         }
 
     def get_full_name(self, obj):
-        return f"{obj.first_name} {obj.last_name}"
+        return f"{obj.first_name} {obj.last_name}".strip()
 
     def get_conversation_count(self, obj):
         return obj.conversations.count()
@@ -33,7 +35,7 @@ class UserSerializer(serializers.ModelSerializer):
         if self.context.get('request') and self.context['request'].method == 'POST':
             password = attrs.get('password')
             password_confirm = attrs.get('password_confirm')
-            if password != password_confirm:
+            if password and password != password_confirm:
                 raise serializers.ValidationError("Passwords don't match.")
         return attrs
 
@@ -45,6 +47,31 @@ class UserSerializer(serializers.ModelSerializer):
             user.set_password(password)
             user.save()
         return user
+    
+    def update(self, instance, validated_data):
+        validated_data.pop('password_confirm', None)
+        password = validated_data.pop('password', None)
+        
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        
+        if password:
+            instance.set_password(password)
+        
+        instance.save()
+        return instance
+    
+
+# Simplified User Serializer for nested relationships
+class UserMinimalSerializer(serializers.ModelSerializer):
+    full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ['user_id', 'email', 'first_name', 'last_name', 'full_name', 'role']
+
+    def get_full_name(self, obj):
+        return f"{obj.first_name} {obj.last_name}".strip()
 
 
 # Message Serializer
@@ -52,28 +79,32 @@ class MessageSerializer(serializers.ModelSerializer):
     sender = UserSerializer(read_only=True)
     sender_id = serializers.UUIDField(write_only=True, required=False)
     preview = serializers.SerializerMethodField()
+    conversation_id = serializers.UUIDField(source='conversation.conversation_id', read_only=True)
 
     class Meta:
         model = Message
         fields = [
-            'message_id', 'sender', 'sender_id', 'conversation',
+            'message_id', 'sender', 'sender_id', 'conversation', 'conversation_id',
             'message_body', 'message_type', 'sent_at', 'is_read',
             'preview'
         ]
-        read_only_fields = ['message_id', 'sent_at', 'preview']
+        read_only_fields = ['message_id', 'sent_at', 'preview', 'sender']
 
     def get_preview(self, obj):
         return obj.message_body[:50] + '...' if len(obj.message_body) > 50 else obj.message_body
 
     def validate_sender_id(self, value):
-        if not User.objects.filter(id=value).exists():
+        if not User.objects.filter(user_id=value).exists():
             raise serializers.ValidationError("Invalid sender ID.")
         return value
 
     def create(self, validated_data):
-        sender_id = validated_data.pop('sender_id', None)
-        if sender_id:
-            validated_data['sender'] = User.objects.get(id=sender_id)
+        # Remove sender_id from nested data if present
+        sender_data = validated_data.pop('sender', None)
+        if sender_data:
+            sender_id = sender_data.get('user_id')
+            if sender_id:
+                validated_data['sender'] = User.objects.get(user_id=sender_id)
         return super().create(validated_data)
 
 
@@ -96,10 +127,10 @@ class ConversationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Conversation
         fields = [
-            'conversation_id', 'title', 'participants', 'participant_ids',
+            'conversation_id', 'participants', 'participant_ids',
             'participant_count', 'last_message', 'unread_count',
             'messages', 'message_count', 'recent_messages',
-            'created_at', 'updated_at', 'is_active'
+            'created_at', 'updated_at'
         ]
         read_only_fields = ['conversation_id', 'created_at', 'updated_at']
 
@@ -111,10 +142,12 @@ class ConversationSerializer(serializers.ModelSerializer):
         if last_message:
             return {
                 'message_id': last_message.message_id,
-                'sender': f"{last_message.sender.first_name} {last_message.sender.last_name}",
+                'sender_name': last_message.sender.full_name,
+                'sender_id': last_message.sender.user_id,
                 'preview': last_message.message_body[:50] + '...' if len(last_message.message_body) > 50 else last_message.message_body,
                 'sent_at': last_message.sent_at,
-                'message_type': last_message.message_type
+                'message_type': last_message.message_type,
+                'is_read': last_message.is_read
             }
         return None
 
@@ -123,6 +156,13 @@ class ConversationSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return obj.messages.filter(is_read=False).exclude(sender=request.user).count()
         return 0
+    
+    def get_recent_messages(self, obj):
+        # Get the last 10 messages in the conversation
+        recent_messages = obj.messages.select_related('sender').order_by('-sent_at')[:20]
+        # Reverse to show in chronological order
+        recent_messages = list(reversed(recent_messages))
+        return MessageSerializer(recent_messages, many=True, context=self.context).data
 
     def get_messages(self, obj):
         messages = obj.messages.select_related('sender').order_by('sent_at')
@@ -131,32 +171,86 @@ class ConversationSerializer(serializers.ModelSerializer):
     def get_message_count(self, obj):
         return obj.messages.count()
 
-    def get_recent_messages(self, obj):
-        recent_messages = obj.messages.select_related('sender').order_by('-sent_at')[:20]
-        return MessageSerializer(recent_messages, many=True, context=self.context).data
-
     def validate_participant_ids(self, value):
+        if not value:
+            return value
+        
         value = list(set(value))  # remove duplicates
-        existing_users = User.objects.filter(id__in=value)
+        existing_users = User.objects.filter(user_id__in=value)
         if existing_users.count() != len(value):
-            invalid_ids = set(value) - set(existing_users.values_list('id', flat=True))
+            invalid_ids = set(value) - set(existing_users.values_list('user_id', flat=True))
             raise serializers.ValidationError(f"Invalid user IDs: {list(invalid_ids)}")
         return value
 
     def create(self, validated_data):
         participant_ids = validated_data.pop('participant_ids', [])
         conversation = Conversation.objects.create(**validated_data)
+
+        # Add participants
         if participant_ids:
-            participants = User.objects.filter(id__in=participant_ids)
+            participants = User.objects.filter(user_id__in=participant_ids)
             conversation.participants.set(participants)
+
+        # Ensure the current user (if available) is added as a participant
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            conversation.participants.add(request.user)
+
         return conversation
 
     def update(self, instance, validated_data):
         participant_ids = validated_data.pop('participant_ids', None)
+
+        # Update other fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+
+        # Update participants if participants provided
         if participant_ids is not None:
-            participants = User.objects.filter(id__in=participant_ids)
+            participants = User.objects.filter(user_id__in=participant_ids)
             instance.participants.set(participants)
+
+            # Ensure the current user remains a participant
+            request = self.context.get('request')
+            if request and request.user.is_authenticated:
+                instance.participants.add(request.user)
+
         return instance
+    
+
+# Detailed Conversation Serializer (includes all messages)
+class ConversationDetailSerializer(ConversationSerializer):
+    messages = serializers.SerializerMethodField()
+    message_count = serializers.SerializerMethodField()
+
+    class Meta(ConversationSerializer.Meta):
+        fields = ConversationSerializer.Meta.fields + ['messages', 'message_count']
+
+    def get_messages(self, obj):
+        messages = obj.messages.select_related('sender').order_by('sent_at')
+        return MessageSerializer(messages, many=True, context=self.context).data
+
+    def get_message_count(self, obj):
+        return obj.messages.count()
+
+
+# Serializer for creating messages within a conversation (nested route)
+class ConversationMessageSerializer(serializers.ModelSerializer):
+    sender = UserMinimalSerializer(read_only=True)
+    preview = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Message
+        fields = [
+            'message_id', 'sender', 'message_body', 'message_type', 
+            'sent_at', 'is_read', 'preview'
+        ]
+        read_only_fields = ['message_id', 'sent_at', 'preview', 'sender']
+
+    def get_preview(self, obj):
+        return obj.message_body[:50] + '...' if len(obj.message_body) > 50 else obj.message_body
+
+    def create(self, validated_data):
+        # The conversation and sender will be set by the view
+        return super().create(validated_data)

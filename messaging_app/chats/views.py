@@ -30,7 +30,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
             )
         
         # Validate that all participant IDs exist
-        participants = CustomUser.objects.filter(id__in=participant_ids)
+        participants = CustomUser.objects.filter(user_id__in=participant_ids)
         if participants.count() != len(participant_ids):
             return Response(
                 {"error": "One or more participant IDs are invalid."}, 
@@ -38,7 +38,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
             )
         
         # Create conversation
-        conversation = Conversation.objects.create(title=title)
+        conversation = Conversation.objects.create()
         conversation.participants.set(participants)
         conversation.save()
         
@@ -58,7 +58,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            user = CustomUser.objects.get(id=user_id)
+            user = CustomUser.objects.get(user_id=user_id)
             conversation.participants.add(user)
             return Response({'message': 'Participant added successfully'})
         except CustomUser.DoesNotExist:
@@ -80,7 +80,7 @@ class ConversationViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            user = CustomUser.objects.get(id=user_id)
+            user = CustomUser.objects.get(user_id=user_id)
             
             # Prevent removing the last participant
             if conversation.participants.count() <= 1:
@@ -123,36 +123,39 @@ class MessageViewSet(viewsets.ModelViewSet):
         """Send a message to an existing conversation."""
         # Check if we're accessing via nested route
         conversation_pk = self.kwargs.get('conversation_pk')
-        
-        sender_id = request.data.get('sender_id')
-        conversation_id = conversation_pk or request.data.get('conversation')
+        if not conversation_pk:
+            conversation_pk = request.data.get('conversation')  # from body if general endpoint
+
+        if not conversation_pk:
+            return Response(
+                {"error": "Conversation ID is required."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         message_body = request.data.get('message_body')
         message_type = request.data.get('message_type', 'text')
+
         
-        if not sender_id or not conversation_id or not message_body:
+        if not message_body:
             return Response(
-                {"error": "sender_id, conversation, and message_body are required."},
+                {"error": "message_body is required."},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
+        # Resolve conversation
         try:
-            sender = CustomUser.objects.get(id=sender_id)
-        except CustomUser.DoesNotExist:
-            return Response(
-                {"error": "Invalid sender ID."}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        try:
-            conversation = Conversation.objects.get(conversation_id=conversation_id)
+            conversation = Conversation.objects.get(conversation_id=conversation_pk)
         except Conversation.DoesNotExist:
             return Response(
-                {"error": "Invalid conversation ID."}, 
+                {"error": "Invalid conversation ID."},
                 status=status.HTTP_404_NOT_FOUND
             )
+
+        # Sender is always the logged-in user
+        sender = request.user
         
         # Verify sender is a participant in the conversation
-        if not conversation.participants.filter(id=sender_id).exists():
+        if not conversation.participants.filter(user_id=sender.user_id).exists():
             return Response(
                 {"error": "Sender is not a participant in this conversation."}, 
                 status=status.HTTP_403_FORBIDDEN
@@ -163,7 +166,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             sender=sender,
             conversation=conversation,
             message_body=message_body,
-            message_type=message_type
+            message_type=message_type,
         )
         
         serializer = self.get_serializer(message)
@@ -206,7 +209,7 @@ class MessageViewSet(viewsets.ModelViewSet):
             )
         
         try:
-            user = CustomUser.objects.get(id=user_id)
+            user = CustomUser.objects.get(user_id=user_id)
         except CustomUser.DoesNotExist:
             return Response(
                 {'error': 'User not found'}, 

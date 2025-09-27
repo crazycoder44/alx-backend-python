@@ -1,2 +1,7 @@
 django
 django-rest-framework
+djangorestframework-simplejwt
+python-dotenv
+psycopg2-binary
+requests
+django-extensions
