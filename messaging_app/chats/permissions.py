@@ -48,12 +48,12 @@ class IsMessageSender(permissions.BasePermission):
         """
         if isinstance(obj, Message):
             # Only sender can edit/delete message
-            if view.action in ['update', 'partial_update', 'destroy']:
+            if request.method in ["PUT", "PATCH", "DELETE"]:
                 return obj.sender == request.user
             # Anyone in conversation can read
-            elif view.action == 'retrieve':
+            elif request.method in permissions.SAFE_METHODS:
                 return (obj.sender == request.user or 
-                       obj.conversation.participants.filter(user_id=request.user.user_id).exists())
+                        obj.conversation.participants.filter(user_id=request.user.user_id).exists())
         
         return False
 
