@@ -27,6 +27,8 @@ class Message(models.Model):
     )
     content = models.TextField(null=False, blank=False)
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
+    edited = models.BooleanField(default=False)
+    last_edited_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ['-timestamp']
@@ -39,6 +41,42 @@ class Message(models.Model):
 
     def __str__(self):
         return f"Message from {self.sender.username} to {self.receiver.username} at {self.timestamp}"
+    
+
+class MessageHistory(models.Model):
+    """
+    MessageHistory model for storing previous versions of edited messages.
+    """
+    history_id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+    message = models.ForeignKey(
+        Message,
+        on_delete=models.CASCADE,
+        related_name='history'
+    )
+    old_content = models.TextField()
+    edited_at = models.DateTimeField(auto_now_add=True)
+    edited_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='message_edits'
+    )
+
+    class Meta:
+        ordering = ['-edited_at']
+        verbose_name = 'Message History'
+        verbose_name_plural = 'Message Histories'
+        indexes = [
+            models.Index(fields=['message', '-edited_at']),
+        ]
+
+    def __str__(self):
+        return f"History for message {self.message.message_id} edited at {self.edited_at}"
+
 
 
 class Notification(models.Model):

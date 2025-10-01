@@ -1,6 +1,7 @@
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
-from .models import Message, Notification
+from .models import Message, Notification, MessageHistory
+from django.utils import timezone
 
 
 @receiver(post_save, sender=Message)
@@ -42,3 +43,40 @@ def log_message_creation(sender, instance, created, **kwargs):
     """
     if created:
         print(f"New message logged: {instance.message_id} from {instance.sender.username} to {instance.receiver.username}")
+
+
+@receiver(pre_save, sender=Message)
+def log_message_edit(sender, instance, **kwargs):
+    """
+    Signal handler that logs message edits before they are saved.
+    Captures the old content and stores it in MessageHistory.
+    
+    Args:
+        sender: The model class (Message)
+        instance: The actual Message instance being saved
+        **kwargs: Additional keyword arguments
+    """
+    # Only process if this is an existing message (not a new one)
+    if instance.pk:
+        try:
+            # Get the old version of the message from the database
+            old_message = Message.objects.get(pk=instance.pk)
+            
+            # Check if the content has changed
+            if old_message.content != instance.content:
+                # Create a history entry with the old content
+                MessageHistory.objects.create(
+                    message=instance,
+                    old_content=old_message.content,
+                    edited_by=instance.sender
+                )
+                
+                # Mark the message as edited
+                instance.edited = True
+                instance.last_edited_at = timezone.now()
+                
+                print(f"Message {instance.message_id} edited. Old content saved to history.")
+        
+        except Message.DoesNotExist:
+            # This shouldn't happen, but handle it gracefully
+            pass
