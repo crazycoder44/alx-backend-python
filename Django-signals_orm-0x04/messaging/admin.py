@@ -7,27 +7,27 @@ class MessageAdmin(admin.ModelAdmin):
     """
     Admin interface for Message model.
     """
-    list_display = ['message_id', 'sender', 'recipient', 'message_preview', 'sent_at']
-    list_filter = ['sent_at', 'sender', 'recipient']
-    search_fields = ['sender__username', 'recipient__username', 'message_body']
-    readonly_fields = ['message_id', 'sent_at']
-    date_hierarchy = 'sent_at'
-    ordering = ['-sent_at']
+    list_display = ['message_id', 'sender', 'receiver', 'content_preview', 'timestamp']
+    list_filter = ['timestamp', 'sender', 'receiver']
+    search_fields = ['sender__username', 'receiver__username', 'content']
+    readonly_fields = ['message_id', 'timestamp']
+    date_hierarchy = 'timestamp'
+    ordering = ['-timestamp']
     
     fieldsets = (
         ('Message Information', {
-            'fields': ('message_id', 'sender', 'recipient', 'message_body')
+            'fields': ('message_id', 'sender', 'receiver', 'content')
         }),
         ('Timestamp', {
-            'fields': ('sent_at',)
+            'fields': ('timestamp',)
         }),
     )
 
-    def message_preview(self, obj):
-        """Display first 50 characters of message body."""
-        return obj.message_body[:50] + '...' if len(obj.message_body) > 50 else obj.message_body
+    def content_preview(self, obj):
+        """Display first 50 characters of content."""
+        return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
     
-    message_preview.short_description = 'Message Preview'
+    content_preview.short_description = 'Content Preview'
 
 
 @admin.register(Notification)

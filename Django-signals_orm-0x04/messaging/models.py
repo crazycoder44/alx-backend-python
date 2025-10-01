@@ -19,26 +19,26 @@ class Message(models.Model):
         related_name='sent_messages',
         db_column='sender_id'
     )
-    recipient = models.ForeignKey(
+    receiver = models.ForeignKey(
         User,
         on_delete=models.CASCADE,
         related_name='received_messages',
         db_column='recipient_id'
     )
-    message_body = models.TextField(null=False, blank=False)
-    sent_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    content = models.TextField(null=False, blank=False)
+    timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
-        ordering = ['-sent_at']
+        ordering = ['-timestamp']
         verbose_name = 'Message'
         verbose_name_plural = 'Messages'
         indexes = [
-            models.Index(fields=['-sent_at']),
-            models.Index(fields=['sender', 'recipient']),
+            models.Index(fields=['-timestamp']),
+            models.Index(fields=['sender', 'receiver']),
         ]
 
     def __str__(self):
-        return f"Message from {self.sender.username} to {self.recipient.username} at {self.sent_at}"
+        return f"Message from {self.sender.username} to {self.receiver.username} at {self.timestamp}"
 
 
 class Notification(models.Model):

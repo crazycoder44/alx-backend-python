@@ -17,9 +17,9 @@ class MessageSignalTestCase(TestCase):
             email='sender@example.com',
             password='testpass123'
         )
-        self.recipient = User.objects.create_user(
-            username='recipient_user',
-            email='recipient@example.com',
+        self.receiver = User.objects.create_user(
+            username='receiver_user',
+            email='receiver@example.com',
             password='testpass123'
         )
 
@@ -29,15 +29,15 @@ class MessageSignalTestCase(TestCase):
         """
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Hello, this is a test message!'
+            receiver=self.receiver,
+            content='Hello, this is a test message!'
         )
         
         self.assertIsNotNone(message.message_id)
         self.assertEqual(message.sender, self.sender)
-        self.assertEqual(message.recipient, self.recipient)
-        self.assertEqual(message.message_body, 'Hello, this is a test message!')
-        self.assertIsNotNone(message.sent_at)
+        self.assertEqual(message.receiver, self.receiver)
+        self.assertEqual(message.content, 'Hello, this is a test message!')
+        self.assertIsNotNone(message.timestamp)
 
     def test_notification_created_on_message_save(self):
         """
@@ -49,16 +49,16 @@ class MessageSignalTestCase(TestCase):
         # Create a new message
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Test message for notification'
+            receiver=self.receiver,
+            content='Test message for notification'
         )
         
         # Check that notification count increased by 1
         self.assertEqual(Notification.objects.count(), initial_notification_count + 1)
         
-        # Verify the notification was created for the recipient
+        # Verify the notification was created for the receiver
         notification = Notification.objects.get(message=message)
-        self.assertEqual(notification.user, self.recipient)
+        self.assertEqual(notification.user, self.receiver)
         self.assertEqual(notification.message, message)
         self.assertEqual(notification.notification_type, 'message')
         self.assertIn(self.sender.username, notification.content)
@@ -74,16 +74,16 @@ class MessageSignalTestCase(TestCase):
         for i in range(3):
             Message.objects.create(
                 sender=self.sender,
-                recipient=self.recipient,
-                message_body=f'Test message {i+1}'
+                receiver=self.receiver,
+                content=f'Test message {i+1}'
             )
         
         # Check that 3 new notifications were created
         self.assertEqual(Notification.objects.count(), initial_count + 3)
         
-        # Verify all notifications are for the recipient
-        recipient_notifications = Notification.objects.filter(user=self.recipient)
-        self.assertEqual(recipient_notifications.count(), 3)
+        # Verify all notifications are for the receiver
+        receiver_notifications = Notification.objects.filter(user=self.receiver)
+        self.assertEqual(receiver_notifications.count(), 3)
 
     def test_notification_not_created_on_message_update(self):
         """
@@ -92,15 +92,15 @@ class MessageSignalTestCase(TestCase):
         # Create a message
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Original message'
+            receiver=self.receiver,
+            content='Original message'
         )
         
         # Get notification count after creation
         notification_count_after_creation = Notification.objects.count()
         
         # Update the message
-        message.message_body = 'Updated message'
+        message.content = 'Updated message'
         message.save()
         
         # Verify no new notification was created
@@ -112,8 +112,8 @@ class MessageSignalTestCase(TestCase):
         """
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Testing notification content'
+            receiver=self.receiver,
+            content='Testing notification content'
         )
         
         notification = Notification.objects.get(message=message)
@@ -126,8 +126,8 @@ class MessageSignalTestCase(TestCase):
         """
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Test message'
+            receiver=self.receiver,
+            content='Test message'
         )
         
         notification = Notification.objects.get(message=message)
@@ -139,36 +139,36 @@ class MessageSignalTestCase(TestCase):
         
         self.assertTrue(notification.is_read)
 
-    def test_multiple_recipients_different_notifications(self):
+    def test_multiple_receivers_different_notifications(self):
         """
-        Test that different recipients receive separate notifications.
+        Test that different receivers receive separate notifications.
         """
-        recipient2 = User.objects.create_user(
-            username='recipient2_user',
-            email='recipient2@example.com',
+        receiver2 = User.objects.create_user(
+            username='receiver2_user',
+            email='receiver2@example.com',
             password='testpass123'
         )
         
-        # Send message to first recipient
+        # Send message to first receiver
         message1 = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Message to recipient 1'
+            receiver=self.receiver,
+            content='Message to receiver 1'
         )
         
-        # Send message to second recipient
+        # Send message to second receiver
         message2 = Message.objects.create(
             sender=self.sender,
-            recipient=recipient2,
-            message_body='Message to recipient 2'
+            receiver=receiver2,
+            content='Message to receiver 2'
         )
         
         # Check notifications
         notification1 = Notification.objects.get(message=message1)
         notification2 = Notification.objects.get(message=message2)
         
-        self.assertEqual(notification1.user, self.recipient)
-        self.assertEqual(notification2.user, recipient2)
+        self.assertEqual(notification1.user, self.receiver)
+        self.assertEqual(notification2.user, receiver2)
         self.assertNotEqual(notification1.notification_id, notification2.notification_id)
 
     def test_message_string_representation(self):
@@ -177,11 +177,11 @@ class MessageSignalTestCase(TestCase):
         """
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Test message'
+            receiver=self.receiver,
+            content='Test message'
         )
         
-        expected_str = f"Message from {self.sender.username} to {self.recipient.username} at {message.sent_at}"
+        expected_str = f"Message from {self.sender.username} to {self.receiver.username} at {message.timestamp}"
         self.assertEqual(str(message), expected_str)
 
     def test_notification_string_representation(self):
@@ -190,10 +190,10 @@ class MessageSignalTestCase(TestCase):
         """
         message = Message.objects.create(
             sender=self.sender,
-            recipient=self.recipient,
-            message_body='Test message'
+            receiver=self.receiver,
+            content='Test message'
         )
         
         notification = Notification.objects.get(message=message)
-        expected_str = f"Notification for {self.recipient.username}: {notification.content[:50]}"
+        expected_str = f"Notification for {self.receiver.username}: {notification.content[:50]}"
         self.assertEqual(str(notification), expected_str)

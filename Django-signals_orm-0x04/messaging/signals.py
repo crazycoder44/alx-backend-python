@@ -15,17 +15,17 @@ def create_message_notification(sender, instance, created, **kwargs):
         **kwargs: Additional keyword arguments
     """
     if created:
-        # Create notification for the recipient
+        # Create notification for the receiver
         notification_content = f"You have a new message from {instance.sender.username}"
         
         Notification.objects.create(
-            user=instance.recipient,
+            user=instance.receiver,
             message=instance,
             notification_type='message',
             content=notification_content
         )
         
-        print(f"Notification created for {instance.recipient.username} about message from {instance.sender.username}")
+        print(f"Notification created for {instance.receiver.username} about message from {instance.sender.username}")
 
 
 @receiver(post_save, sender=Message)
@@ -41,4 +41,4 @@ def log_message_creation(sender, instance, created, **kwargs):
         **kwargs: Additional keyword arguments
     """
     if created:
-        print(f"New message logged: {instance.message_id} from {instance.sender.username} to {instance.recipient.username}")
+        print(f"New message logged: {instance.message_id} from {instance.sender.username} to {instance.receiver.username}")
