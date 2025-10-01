@@ -1,4 +1,5 @@
-from django.db.models.signals import post_save, pre_save
+from django.db.models.signals import post_save, pre_save, post_delete
+from django.contrib.auth.models import User
 from django.dispatch import receiver
 from .models import Message, Notification, MessageHistory
 from django.utils import timezone
@@ -80,3 +81,45 @@ def log_message_edit(sender, instance, **kwargs):
         except Message.DoesNotExist:
             # This shouldn't happen, but handle it gracefully
             pass
+
+
+@receiver(post_delete, sender=User)
+def delete_user_related_data(sender, instance, **kwargs):
+    """
+    Signal handler that cleans up all user-related data when a user is deleted.
+    
+    This handles:
+    - Messages sent by the user
+    - Messages received by the user
+    - Notifications for the user
+    - Message history entries edited by the user
+    
+    Args:
+        sender: The model class (User)
+        instance: The actual User instance being deleted
+        **kwargs: Additional keyword arguments
+    """
+    username = instance.username
+    
+    # Delete all messages sent by the user
+    sent_messages_count = Message.objects.filter(sender=instance).count()
+    Message.objects.filter(sender=instance).delete()
+    print(f"Deleted {sent_messages_count} messages sent by {username}")
+    
+    # Delete all messages received by the user
+    received_messages_count = Message.objects.filter(receiver=instance).count()
+    Message.objects.filter(receiver=instance).delete()
+    print(f"Deleted {received_messages_count} messages received by {username}")
+    
+    # Delete all notifications for the user
+    notifications_count = Notification.objects.filter(user=instance).count()
+    Notification.objects.filter(user=instance).delete()
+    print(f"Deleted {notifications_count} notifications for {username}")
+    
+    # Delete message history entries edited by the user
+    # Note: History entries linked to deleted messages are automatically deleted via CASCADE
+    history_count = MessageHistory.objects.filter(edited_by=instance).count()
+    MessageHistory.objects.filter(edited_by=instance).update(edited_by=None)
+    print(f"Cleared edited_by reference for {history_count} history entries by {username}")
+    
+    print(f"Successfully cleaned up all data for user: {username}")

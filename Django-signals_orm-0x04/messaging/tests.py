@@ -1,5 +1,6 @@
-from django.test import TestCase
+from django.test import TestCase, Client
 from django.contrib.auth.models import User
+from django.urls import reverse
 from .models import Message, Notification, MessageHistory
 
 
@@ -38,6 +39,7 @@ class MessageSignalTestCase(TestCase):
         self.assertEqual(message.receiver, self.receiver)
         self.assertEqual(message.content, 'Hello, this is a test message!')
         self.assertIsNotNone(message.timestamp)
+        self.assertFalse(message.edited)
 
     def test_notification_created_on_message_save(self):
         """
@@ -380,3 +382,335 @@ class MessageEditSignalTestCase(TestCase):
         
         # Verify no history was created
         self.assertEqual(MessageHistory.objects.count(), initial_history_count)
+
+
+class UserDeletionSignalTestCase(TestCase):
+    """
+    Test cases for User deletion signals and cleanup of related data.
+    """
+
+    def setUp(self):
+        """
+        Set up test users and data for deletion tests.
+        """
+        self.user1 = User.objects.create_user(
+            username='user1',
+            email='user1@example.com',
+            password='testpass123'
+        )
+        self.user2 = User.objects.create_user(
+            username='user2',
+            email='user2@example.com',
+            password='testpass123'
+        )
+        self.user3 = User.objects.create_user(
+            username='user3',
+            email='user3@example.com',
+            password='testpass123'
+        )
+
+    def test_user_deletion_removes_sent_messages(self):
+        """
+        Test that deleting a user removes all messages they sent.
+        """
+        # Create messages sent by user1
+        message1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Message from user1 to user2'
+        )
+        message2 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user3,
+            content='Message from user1 to user3'
+        )
+        
+        # Verify messages exist
+        self.assertEqual(Message.objects.filter(sender=self.user1).count(), 2)
+        
+        # Delete user1
+        self.user1.delete()
+        
+        # Verify messages were deleted
+        self.assertEqual(Message.objects.filter(message_id=message1.message_id).count(), 0)
+        self.assertEqual(Message.objects.filter(message_id=message2.message_id).count(), 0)
+
+    def test_user_deletion_removes_received_messages(self):
+        """
+        Test that deleting a user removes all messages they received.
+        """
+        # Create messages received by user2
+        message1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Message to user2 from user1'
+        )
+        message2 = Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Message to user2 from user3'
+        )
+        
+        # Verify messages exist
+        self.assertEqual(Message.objects.filter(receiver=self.user2).count(), 2)
+        
+        # Delete user2
+        self.user2.delete()
+        
+        # Verify messages were deleted
+        self.assertEqual(Message.objects.filter(message_id=message1.message_id).count(), 0)
+        self.assertEqual(Message.objects.filter(message_id=message2.message_id).count(), 0)
+
+    def test_user_deletion_removes_notifications(self):
+        """
+        Test that deleting a user removes all their notifications.
+        """
+        # Create messages which will create notifications
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Message 1'
+        )
+        Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Message 2'
+        )
+        
+        # Verify notifications were created
+        self.assertEqual(Notification.objects.filter(user=self.user2).count(), 2)
+        
+        # Delete user2
+        self.user2.delete()
+        
+        # Verify notifications were deleted
+        self.assertEqual(Notification.objects.filter(user=self.user2).count(), 0)
+
+    def test_user_deletion_clears_message_history_references(self):
+        """
+        Test that deleting a user clears edited_by references in message history.
+        """
+        # Create a message
+        message = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Original content'
+        )
+        
+        # Edit the message to create history
+        message.content = 'Updated content'
+        message.save()
+        
+        # Verify history was created with edited_by
+        history = MessageHistory.objects.first()
+        self.assertEqual(history.edited_by, self.user1)
+        
+        # Delete user1
+        self.user1.delete()
+        
+        # Since the message is deleted with user1, history should also be deleted via CASCADE
+        self.assertEqual(MessageHistory.objects.count(), 0)
+
+    def test_user_deletion_does_not_affect_other_users_data(self):
+        """
+        Test that deleting one user doesn't affect other users' data.
+        """
+        # Create messages between different users
+        message1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Message from user1 to user2'
+        )
+        message2 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user3,
+            content='Message from user2 to user3'
+        )
+        
+        # Delete user1
+        self.user1.delete()
+        
+        # Verify message1 was deleted but message2 still exists
+        self.assertEqual(Message.objects.filter(message_id=message1.message_id).count(), 0)
+        self.assertEqual(Message.objects.filter(message_id=message2.message_id).count(), 1)
+        
+        # Verify user2 and user3 still exist
+        self.assertTrue(User.objects.filter(username='user2').exists())
+        self.assertTrue(User.objects.filter(username='user3').exists())
+
+    def test_cascade_deletion_of_message_history(self):
+        """
+        Test that message history is deleted when associated message is deleted.
+        """
+        # Create and edit a message
+        message = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Original content'
+        )
+        
+        message.content = 'Updated content'
+        message.save()
+        
+        # Verify history exists
+        self.assertEqual(MessageHistory.objects.filter(message=message).count(), 1)
+        
+        # Delete the user (which deletes the message)
+        self.user1.delete()
+        
+        # Verify history was also deleted (CASCADE)
+        self.assertEqual(MessageHistory.objects.count(), 0)
+
+    def test_multiple_users_deletion(self):
+        """
+        Test deleting multiple users cleans up all their data.
+        """
+        # Create messages between all users
+        Message.objects.create(sender=self.user1, receiver=self.user2, content='Msg 1')
+        Message.objects.create(sender=self.user2, receiver=self.user3, content='Msg 2')
+        Message.objects.create(sender=self.user3, receiver=self.user1, content='Msg 3')
+        
+        # Verify initial counts
+        self.assertEqual(Message.objects.count(), 3)
+        self.assertEqual(Notification.objects.count(), 3)
+        
+        # Delete all users
+        self.user1.delete()
+        self.user2.delete()
+        self.user3.delete()
+        
+        # Verify all messages and notifications were deleted
+        self.assertEqual(Message.objects.count(), 0)
+        self.assertEqual(Notification.objects.count(), 0)
+        self.assertEqual(User.objects.count(), 0)
+
+
+class UserDeletionViewTestCase(TestCase):
+    """
+    Test cases for user deletion views.
+    """
+
+    def setUp(self):
+        """
+        Set up test client and users.
+        """
+        self.client = Client()
+        self.user = User.objects.create_user(
+            username='testuser',
+            email='testuser@example.com',
+            password='testpass123'
+        )
+        self.other_user = User.objects.create_user(
+            username='otheruser',
+            email='otheruser@example.com',
+            password='testpass123'
+        )
+
+    def test_delete_user_account_view_requires_login(self):
+        """
+        Test that delete account view requires authentication.
+        """
+        response = self.client.get(reverse('messaging:delete_user_account'))
+        # Should redirect to login
+        self.assertEqual(response.status_code, 302)
+
+    def test_delete_user_account_view_displays_confirmation(self):
+        """
+        Test that delete account view displays confirmation page.
+        """
+        # Login
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Create some data for the user
+        Message.objects.create(
+            sender=self.user,
+            receiver=self.other_user,
+            content='Test message'
+        )
+        
+        response = self.client.get(reverse('messaging:delete_user_account'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('sent_messages_count', response.context)
+
+    def test_delete_user_requires_post(self):
+        """
+        Test that delete user endpoint only accepts POST requests.
+        """
+        self.client.login(username='testuser', password='testpass123')
+        
+        response = self.client.get(reverse('messaging:delete_user'))
+        # Should return 405 Method Not Allowed or redirect
+        self.assertIn(response.status_code, [302, 405])
+
+    def test_delete_user_with_confirmation(self):
+        """
+        Test successful user deletion with proper confirmation.
+        """
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Create some data
+        Message.objects.create(
+            sender=self.user,
+            receiver=self.other_user,
+            content='Test message'
+        )
+        
+        # Verify user exists
+        self.assertTrue(User.objects.filter(username='testuser').exists())
+        
+        # Delete user with confirmation
+        response = self.client.post(
+            reverse('messaging:delete_user'),
+            {'confirmation': 'delete'}
+        )
+        
+        # Should redirect
+        self.assertEqual(response.status_code, 302)
+        
+        # Verify user was deleted
+        self.assertFalse(User.objects.filter(username='testuser').exists())
+
+    def test_delete_user_without_proper_confirmation(self):
+        """
+        Test that deletion fails without proper confirmation.
+        """
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Try to delete without proper confirmation
+        response = self.client.post(
+            reverse('messaging:delete_user'),
+            {'confirmation': 'wrong'}
+        )
+        
+        # Should redirect back
+        self.assertEqual(response.status_code, 302)
+        
+        # Verify user still exists
+        self.assertTrue(User.objects.filter(username='testuser').exists())
+
+    def test_user_data_summary_api(self):
+        """
+        Test user data summary API endpoint.
+        """
+        self.client.login(username='testuser', password='testpass123')
+        
+        # Create some data
+        Message.objects.create(
+            sender=self.user,
+            receiver=self.other_user,
+            content='Test message 1'
+        )
+        Message.objects.create(
+            sender=self.other_user,
+            receiver=self.user,
+            content='Test message 2'
+        )
+        
+        response = self.client.get(reverse('messaging:user_data_summary'))
+        self.assertEqual(response.status_code, 200)
+        
+        data = response.json()
+        self.assertEqual(data['username'], 'testuser')
+        self.assertEqual(data['sent_messages_count'], 1)
+        self.assertEqual(data['received_messages_count'], 1)
+        self.assertEqual(data['notifications_count'], 1)  # One notification for received message
