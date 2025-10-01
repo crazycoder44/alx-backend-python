@@ -1,0 +1,10 @@
+[2025-10-01 22:49:54.430390] User: Anonymous - Path: /
+[2025-10-01 22:50:14.328306] User: Anonymous - Path: /admin/
+[2025-10-01 22:50:25.371642] User: Anonymous - Path: /admin/login/
+[2025-10-01 22:50:58.475486] User: Anonymous - Path: /admin/login/
+[2025-10-01 22:51:10.123456] User: admin - Path: /admin/
+[2025-10-01 22:51:30.654321] User: admin - Path: /admin/app/model/
+[2025-10-01 22:52:00.987654] User: admin - Path: /admin/app/model/add/
+[2025-10-01 22:52:30.123789] User: admin - Path: /admin/app/model/1/change/
+[2025-10-01 22:53:00.456123] User: admin - Path: /admin/logout/
+[2025-10-01 22:53:30.789456] User: Anonymous - Path: /
