@@ -1,14 +1,15 @@
 from django.db.models.signals import post_save, pre_save, post_delete
-from django.contrib.auth.models import User
 from django.dispatch import receiver
-from .models import Message, Notification, MessageHistory
 from django.utils import timezone
+from django.contrib.auth.models import User
+from .models import Message, Notification, MessageHistory
 
 
 @receiver(post_save, sender=Message)
 def create_message_notification(sender, instance, created, **kwargs):
     """
     Signal handler that creates a notification when a new message is created.
+    Differentiates between new messages and replies.
     
     Args:
         sender: The model class (Message)
@@ -17,17 +18,33 @@ def create_message_notification(sender, instance, created, **kwargs):
         **kwargs: Additional keyword arguments
     """
     if created:
-        # Create notification for the receiver
-        notification_content = f"You have a new message from {instance.sender.username}"
+        # Determine notification type based on whether it's a reply
+        if instance.parent_message:
+            notification_type = 'reply'
+            notification_content = f"You have a new reply from {instance.sender.username}"
+            
+            # Notify the original sender as well if different from receiver
+            original_sender = instance.parent_message.sender
+            if original_sender != instance.receiver and original_sender != instance.sender:
+                Notification.objects.create(
+                    user=original_sender,
+                    message=instance,
+                    notification_type='reply',
+                    content=f"{instance.sender.username} replied to your message"
+                )
+        else:
+            notification_type = 'message'
+            notification_content = f"You have a new message from {instance.sender.username}"
         
+        # Create notification for the receiver
         Notification.objects.create(
             user=instance.receiver,
             message=instance,
-            notification_type='message',
+            notification_type=notification_type,
             content=notification_content
         )
         
-        print(f"Notification created for {instance.receiver.username} about message from {instance.sender.username}")
+        print(f"Notification created for {instance.receiver.username} about {notification_type} from {instance.sender.username}")
 
 
 @receiver(post_save, sender=Message)

@@ -16,16 +16,15 @@ class MessageHistoryInline(admin.TabularInline):
         return False
 
 
-
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
     """
-    Admin interface for Message model.
+    Admin interface for Message model with threading support.
     """
-    list_display = ['message_id', 'sender', 'receiver', 'content_preview', 'timestamp']
-    list_filter = ['timestamp', 'sender', 'receiver']
+    list_display = ['message_id', 'sender', 'receiver', 'content_preview', 'timestamp', 'edited', 'is_reply_display', 'reply_count_display']
+    list_filter = ['timestamp', 'edited', 'sender', 'receiver', 'parent_message']
     search_fields = ['sender__username', 'receiver__username', 'content']
-    readonly_fields = ['message_id', 'timestamp']
+    readonly_fields = ['message_id', 'timestamp', 'edited', 'last_edited_at']
     date_hierarchy = 'timestamp'
     ordering = ['-timestamp']
     inlines = [MessageHistoryInline]
@@ -34,6 +33,10 @@ class MessageAdmin(admin.ModelAdmin):
         ('Message Information', {
             'fields': ('message_id', 'sender', 'receiver', 'content')
         }),
+        ('Threading', {
+            'fields': ('parent_message',),
+            'description': 'Set parent message to create a reply'
+        }),
         ('Timestamp & Edit Info', {
             'fields': ('timestamp', 'edited', 'last_edited_at')
         }),
@@ -41,9 +44,26 @@ class MessageAdmin(admin.ModelAdmin):
 
     def content_preview(self, obj):
         """Display first 50 characters of content."""
-        return obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
+        preview = obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
+        if obj.edited:
+            return f"{preview} (edited)"
+        return preview
     
     content_preview.short_description = 'Content Preview'
+
+    def is_reply_display(self, obj):
+        """Display if message is a reply."""
+        return '✓' if obj.is_reply() else '✗'
+    
+    is_reply_display.short_description = 'Is Reply'
+    is_reply_display.boolean = True
+
+    def reply_count_display(self, obj):
+        """Display number of direct replies."""
+        count = obj.get_reply_count()
+        return f"{count} replies" if count != 1 else f"{count} reply"
+    
+    reply_count_display.short_description = 'Replies'
 
 
 @admin.register(MessageHistory)

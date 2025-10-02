@@ -714,3 +714,607 @@ class UserDeletionViewTestCase(TestCase):
         self.assertEqual(data['sent_messages_count'], 1)
         self.assertEqual(data['received_messages_count'], 1)
         self.assertEqual(data['notifications_count'], 1)  # One notification for received message
+
+
+class ThreadedConversationTestCase(TestCase):
+    """
+    Test cases for threaded conversation functionality and ORM optimizations.
+    """
+
+    def setUp(self):
+        """
+        Set up test users for threading tests.
+        """
+        self.user1 = User.objects.create_user(
+            username='user1',
+            email='user1@example.com',
+            password='testpass123'
+        )
+        self.user2 = User.objects.create_user(
+            username='user2',
+            email='user2@example.com',
+            password='testpass123'
+        )
+        self.user3 = User.objects.create_user(
+            username='user3',
+            email='user3@example.com',
+            password='testpass123'
+        )
+
+    def test_message_with_parent_is_reply(self):
+        """
+        Test that a message with a parent is identified as a reply.
+        """
+        # Create root message
+        root_message = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root message'
+        )
+        
+        # Create reply
+        reply = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply to root',
+            parent_message=root_message
+        )
+        
+        self.assertTrue(reply.is_reply())
+        self.assertFalse(root_message.is_reply())
+
+    def test_get_thread_root(self):
+        """
+        Test getting the root message of a conversation thread.
+        """
+        # Create message hierarchy: root -> reply1 -> reply2
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply1 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        reply2 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Reply 2',
+            parent_message=reply1
+        )
+        
+        # All messages should return same root
+        self.assertEqual(root.get_thread_root(), root)
+        self.assertEqual(reply1.get_thread_root(), root)
+        self.assertEqual(reply2.get_thread_root(), root)
+
+    def test_get_all_replies(self):
+        """
+        Test retrieving all direct replies to a message.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        # Create 3 direct replies
+        reply1 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        reply2 = Message.objects.create(
+            sender=self.user3,
+            receiver=self.user1,
+            content='Reply 2',
+            parent_message=root
+        )
+        
+        reply3 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 3',
+            parent_message=root
+        )
+        
+        replies = root.get_all_replies()
+        self.assertEqual(replies.count(), 3)
+
+    def test_get_reply_count(self):
+        """
+        Test getting the count of direct replies.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        self.assertEqual(root.get_reply_count(), 0)
+        
+        # Add replies
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        Message.objects.create(
+            sender=self.user3,
+            receiver=self.user1,
+            content='Reply 2',
+            parent_message=root
+        )
+        
+        self.assertEqual(root.get_reply_count(), 2)
+
+    def test_get_total_reply_count_nested(self):
+        """
+        Test getting total count of all nested replies.
+        """
+        # Create nested structure: root -> reply1 -> reply2 -> reply3
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply1 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        reply2 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Reply 2',
+            parent_message=reply1
+        )
+        
+        reply3 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 3',
+            parent_message=reply2
+        )
+        
+        # Root should have 3 total replies
+        self.assertEqual(root.get_total_reply_count(), 3)
+        # reply1 should have 2 nested replies
+        self.assertEqual(reply1.get_total_reply_count(), 2)
+        # reply2 should have 1 nested reply
+        self.assertEqual(reply2.get_total_reply_count(), 1)
+
+    def test_get_thread_messages(self):
+        """
+        Test getting all messages in a thread.
+        """
+        # Create thread structure
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply1 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        reply2 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Reply 2',
+            parent_message=reply1
+        )
+        
+        # Get all thread messages from any message in thread
+        thread_messages = reply2.get_thread_messages()
+        
+        # Should include root and all replies
+        self.assertGreaterEqual(thread_messages.count(), 3)
+
+    def test_get_conversation_participants(self):
+        """
+        Test getting all participants in a conversation thread.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Reply 2',
+            parent_message=root
+        )
+        
+        participants = root.get_conversation_participants()
+        
+        # Should include all 3 users
+        self.assertEqual(len(participants), 3)
+        self.assertIn(self.user1, participants)
+        self.assertIn(self.user2, participants)
+        self.assertIn(self.user3, participants)
+
+    def test_get_root_messages_optimized(self):
+        """
+        Test getting root messages with optimized queries.
+        """
+        # Create root messages
+        root1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root 1'
+        )
+        
+        root2 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user3,
+            content='Root 2'
+        )
+        
+        # Create replies (should not be in root messages)
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply to root 1',
+            parent_message=root1
+        )
+        
+        root_messages = Message.get_root_messages_optimized()
+        
+        # Should only return root messages, not replies
+        self.assertEqual(root_messages.count(), 2)
+
+    def test_conversation_tree_structure(self):
+        """
+        Test building a conversation tree structure.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply1 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        reply2 = Message.objects.create(
+            sender=self.user3,
+            receiver=self.user1,
+            content='Reply 2',
+            parent_message=root
+        )
+        
+        nested_reply = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Nested reply',
+            parent_message=reply1
+        )
+        
+        tree = Message.get_conversation_tree(root)
+        
+        # Verify tree structure
+        self.assertEqual(tree['message'], root)
+        self.assertEqual(len(tree['replies']), 2)
+        self.assertEqual(tree['replies'][0]['message'], reply1)
+        self.assertEqual(len(tree['replies'][0]['replies']), 1)
+        self.assertEqual(tree['replies'][0]['replies'][0]['message'], nested_reply)
+
+    def test_reply_notification_type(self):
+        """
+        Test that replies create 'reply' type notifications.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        # Clear existing notifications
+        Notification.objects.all().delete()
+        
+        # Create reply
+        reply = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply',
+            parent_message=root
+        )
+        
+        # Check notification type
+        notification = Notification.objects.filter(user=self.user1).first()
+        self.assertIsNotNone(notification)
+        self.assertEqual(notification.notification_type, 'reply')
+
+    def test_cascade_delete_with_replies(self):
+        """
+        Test that deleting a parent message cascades to replies.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply',
+            parent_message=root
+        )
+        
+        reply_id = reply.message_id
+        
+        # Delete root message
+        root.delete()
+        
+        # Reply should also be deleted (CASCADE)
+        self.assertFalse(Message.objects.filter(message_id=reply_id).exists())
+
+    def test_complex_threaded_conversation(self):
+        """
+        Test a complex multi-level threaded conversation.
+        """
+        # Create structure:
+        # root
+        #   ├── reply1
+        #   │   └── reply1_1
+        #   └── reply2
+        #       ├── reply2_1
+        #       └── reply2_2
+        
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply1 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply 1',
+            parent_message=root
+        )
+        
+        reply1_1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Reply 1.1',
+            parent_message=reply1
+        )
+        
+        reply2 = Message.objects.create(
+            sender=self.user3,
+            receiver=self.user1,
+            content='Reply 2',
+            parent_message=root
+        )
+        
+        reply2_1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user3,
+            content='Reply 2.1',
+            parent_message=reply2
+        )
+        
+        reply2_2 = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user3,
+            content='Reply 2.2',
+            parent_message=reply2
+        )
+        
+        # Verify counts
+        self.assertEqual(root.get_reply_count(), 2)  # Direct replies
+        self.assertEqual(root.get_total_reply_count(), 5)  # All nested
+        self.assertEqual(reply1.get_total_reply_count(), 1)
+        self.assertEqual(reply2.get_total_reply_count(), 2)
+
+    def test_orm_optimization_select_related(self):
+        """
+        Test that select_related reduces database queries.
+        """
+        # Create messages
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply',
+            parent_message=root
+        )
+        
+        # Query with select_related should minimize queries
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        
+        with CaptureQueriesContext(connection) as context:
+            messages = Message.objects.select_related(
+                'sender', 'receiver', 'parent_message'
+            ).filter(parent_message=root)
+            
+            # Access related objects
+            for msg in messages:
+                _ = msg.sender.username
+                _ = msg.receiver.username
+                if msg.parent_message:
+                    _ = msg.parent_message.content
+            
+            # Should use fewer queries than without select_related
+            query_count = len(context.captured_queries)
+            self.assertLess(query_count, 5)
+
+    def test_orm_optimization_prefetch_related(self):
+        """
+        Test that prefetch_related optimizes reverse relations.
+        """
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        # Create multiple replies
+        for i in range(5):
+            Message.objects.create(
+                sender=self.user2,
+                receiver=self.user1,
+                content=f'Reply {i}',
+                parent_message=root
+            )
+        
+        from django.test.utils import CaptureQueriesContext
+        from django.db import connection
+        
+        with CaptureQueriesContext(connection) as context:
+            # Query with prefetch_related
+            roots = Message.objects.filter(
+                message_id=root.message_id
+            ).prefetch_related('replies')
+            
+            # Access replies
+            for root_msg in roots:
+                replies = list(root_msg.replies.all())
+            
+            query_count = len(context.captured_queries)
+            # Should use only 2 queries (1 for root, 1 for replies)
+            self.assertLessEqual(query_count, 3)
+
+
+class ThreadedConversationViewTestCase(TestCase):
+    """
+    Test cases for threaded conversation views.
+    """
+
+    def setUp(self):
+        """
+        Set up test client and users.
+        """
+        self.client = Client()
+        self.user1 = User.objects.create_user(
+            username='user1',
+            email='user1@example.com',
+            password='testpass123'
+        )
+        self.user2 = User.objects.create_user(
+            username='user2',
+            email='user2@example.com',
+            password='testpass123'
+        )
+
+    def test_conversation_thread_view(self):
+        """
+        Test conversation thread view displays correctly.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        # Create threaded conversation
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply',
+            parent_message=root
+        )
+        
+        response = self.client.get(
+            reverse('messaging:conversation_thread', args=[reply.message_id])
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('conversation_tree', response.context)
+        self.assertIn('root_message', response.context)
+
+    def test_create_reply_view(self):
+        """
+        Test creating a reply via view.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        root = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Root message'
+        )
+        
+        initial_reply_count = root.get_reply_count()
+        
+        response = self.client.post(
+            reverse('messaging:create_reply', args=[root.message_id]),
+            {'content': 'My reply'}
+        )
+        
+        # Should redirect
+        self.assertEqual(response.status_code, 302)
+        
+        # Verify reply was created
+        root.refresh_from_db()
+        self.assertEqual(root.get_reply_count(), initial_reply_count + 1)
+
+    def test_conversation_tree_json_api(self):
+        """
+        Test conversation tree JSON API endpoint.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        root = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root'
+        )
+        
+        reply = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply',
+            parent_message=root
+        )
+        
+        response = self.client.get(
+            reverse('messaging:conversation_tree_json', args=[root.message_id])
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        
+        self.assertEqual(data['content'], 'Root')
+        self.assertEqual(len(data['replies']), 1)
+        self.assertEqual(data['replies'][0]['content'], 'Reply')

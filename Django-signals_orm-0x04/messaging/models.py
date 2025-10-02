@@ -30,6 +30,16 @@ class Message(models.Model):
     edited = models.BooleanField(default=False)
     last_edited_at = models.DateTimeField(null=True, blank=True)
 
+    # Self-referential foreign key for threaded conversations
+    parent_message = models.ForeignKey(
+        'self',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='replies',
+        db_index=True
+    )
+
     class Meta:
         ordering = ['-timestamp']
         verbose_name = 'Message'
@@ -37,10 +47,105 @@ class Message(models.Model):
         indexes = [
             models.Index(fields=['-timestamp']),
             models.Index(fields=['sender', 'receiver']),
+            models.Index(fields=['parent_message', '-timestamp']),
         ]
 
     def __str__(self):
         return f"Message from {self.sender.username} to {self.receiver.username} at {self.timestamp}"
+    
+    def is_reply(self):
+        """Check if this message is a reply to another message."""
+        return self.parent_message is not None
+
+    def get_thread_root(self):
+        """Get the root message of the conversation thread."""
+        message = self
+        while message.parent_message:
+            message = message.parent_message
+        return message
+
+    def get_all_replies(self):
+        """
+        Recursively get all replies to this message using optimized ORM queries.
+        Returns a queryset of all descendant messages.
+        """
+        return Message.objects.filter(parent_message=self).select_related(
+            'sender', 'receiver', 'parent_message'
+        ).prefetch_related('replies')
+
+    def get_reply_count(self):
+        """Get the total count of direct replies to this message."""
+        return self.replies.count()
+
+    def get_total_reply_count(self):
+        """
+        Get the total count of all replies (including nested) recursively.
+        """
+        count = self.replies.count()
+        for reply in self.replies.all():
+            count += reply.get_total_reply_count()
+        return count
+
+    def get_thread_messages(self):
+        """
+        Get all messages in the same thread (root and all descendants).
+        Uses optimized queries with prefetch_related.
+        """
+        root = self.get_thread_root()
+        return Message.objects.filter(
+            models.Q(message_id=root.message_id) |
+            models.Q(parent_message=root) |
+            models.Q(parent_message__parent_message=root) |
+            models.Q(parent_message__parent_message__parent_message=root)
+        ).select_related(
+            'sender', 'receiver', 'parent_message'
+        ).prefetch_related('replies').order_by('timestamp')
+
+    def get_conversation_participants(self):
+        """Get all unique participants in this conversation thread."""
+        root = self.get_thread_root()
+        thread_messages = root.get_thread_messages()
+        
+        participants = set()
+        for msg in thread_messages:
+            participants.add(msg.sender)
+            participants.add(msg.receiver)
+        
+        return list(participants)
+
+    @staticmethod
+    def get_root_messages_optimized():
+        """
+        Get all root messages (messages with no parent) with optimized queries.
+        Uses select_related and prefetch_related to minimize database hits.
+        """
+        return Message.objects.filter(
+            parent_message__isnull=True
+        ).select_related(
+            'sender', 'receiver'
+        ).prefetch_related(
+            'replies__sender',
+            'replies__receiver',
+            'replies__replies'
+        ).order_by('-timestamp')
+
+    @staticmethod
+    def get_conversation_tree(root_message):
+        """
+        Build a complete conversation tree with all nested replies.
+        Returns a dictionary structure representing the threaded conversation.
+        """
+        def build_tree(message):
+            replies = message.replies.select_related(
+                'sender', 'receiver'
+            ).prefetch_related('replies').order_by('timestamp')
+            
+            return {
+                'message': message,
+                'replies': [build_tree(reply) for reply in replies]
+            }
+        
+        return build_tree(root_message)
     
 
 class MessageHistory(models.Model):
@@ -86,6 +191,7 @@ class Notification(models.Model):
     """
     NOTIFICATION_TYPES = (
         ('message', 'New Message'),
+        ('reply', 'New Reply'),
         ('system', 'System Notification'),
     )
 

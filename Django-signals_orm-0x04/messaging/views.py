@@ -4,30 +4,49 @@ from django.contrib.auth import logout
 from django.contrib import messages
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+from django.db.models import Q, Prefetch, Count
 from .models import Message, MessageHistory
 
 
 @login_required
 def message_detail(request, message_id):
     """
-    View to display a message with its edit history.
+    View to display a message with its edit history and threaded replies.
+    Uses optimized ORM queries with prefetch_related and select_related.
     
     Args:
         request: HTTP request object
         message_id: UUID of the message to display
     
     Returns:
-        Rendered template with message and history
+        Rendered template with message, history, and threaded replies
     """
-    message = get_object_or_404(Message, message_id=message_id)
+    # Optimized query using select_related for foreign keys
+    message = get_object_or_404(
+        Message.objects.select_related('sender', 'receiver', 'parent_message'),
+        message_id=message_id
+    )
     
-    # Get all history entries for this message, ordered by edit time
-    history_entries = MessageHistory.objects.filter(message=message).order_by('-edited_at')
+    # Get all history entries for this message
+    history_entries = MessageHistory.objects.filter(
+        message=message
+    ).select_related('edited_by').order_by('-edited_at')
+    
+    # Get conversation tree using optimized recursive query
+    conversation_tree = Message.get_conversation_tree(message.get_thread_root())
+    
+    # Get all participants in the thread
+    participants = message.get_conversation_participants()
     
     context = {
         'message': message,
         'history_entries': history_entries,
-        'has_history': history_entries.exists()
+        'has_history': history_entries.exists(),
+        'conversation_tree': conversation_tree,
+        'participants': participants,
+        'is_reply': message.is_reply(),
+        'reply_count': message.get_reply_count(),
+        'total_reply_count': message.get_total_reply_count(),
     }
     
     return render(request, 'messaging/message_detail.html', context)
@@ -222,3 +241,150 @@ def user_data_summary(request):
     }
     
     return JsonResponse(data)
+
+
+@login_required
+def conversation_thread(request, message_id):
+    """
+    View to display a complete conversation thread.
+    Uses advanced ORM techniques for efficient querying.
+    
+    Args:
+        request: HTTP request object
+        message_id: UUID of any message in the thread
+    
+    Returns:
+        Rendered template with threaded conversation
+    """
+    # Get the message with optimized query
+    message = get_object_or_404(
+        Message.objects.select_related('sender', 'receiver', 'parent_message'),
+        message_id=message_id
+    )
+    
+    # Get root message of the thread
+    root_message = message.get_thread_root()
+    
+    # Build conversation tree using optimized recursive query
+    conversation_tree = Message.get_conversation_tree(root_message)
+    
+    # Get all participants
+    participants = message.get_conversation_participants()
+    
+    # Get message count in thread
+    thread_messages = root_message.get_thread_messages()
+    message_count = thread_messages.count()
+    
+    context = {
+        'root_message': root_message,
+        'conversation_tree': conversation_tree,
+        'participants': participants,
+        'message_count': message_count,
+        'current_message': message,
+    }
+    
+    return render(request, 'messaging/conversation_thread.html', context)
+
+
+@login_required
+def create_reply(request, parent_message_id):
+    """
+    View to create a reply to an existing message.
+    
+    Args:
+        request: HTTP request object
+        parent_message_id: UUID of the parent message
+    
+    Returns:
+        Redirect to conversation thread
+    """
+    if request.method == 'POST':
+        parent_message = get_object_or_404(Message, message_id=parent_message_id)
+        content = request.POST.get('content', '').strip()
+        
+        if content:
+            # Create reply
+            reply = Message.objects.create(
+                sender=request.user,
+                receiver=parent_message.sender,  # Reply to original sender
+                content=content,
+                parent_message=parent_message
+            )
+            
+            messages.success(request, 'Reply posted successfully!')
+            return redirect('messaging:conversation_thread', message_id=reply.message_id)
+        else:
+            messages.error(request, 'Reply content cannot be empty.')
+    
+    return redirect('messaging:message_detail', message_id=parent_message_id)
+
+
+@login_required
+def all_conversations(request):
+    """
+    View to display all root conversations with optimized queries.
+    Uses prefetch_related to minimize database hits.
+    
+    Args:
+        request: HTTP request object
+    
+    Returns:
+        Rendered template with all conversations
+    """
+    user = request.user
+    
+    # Get all root messages where user is sender or receiver
+    # Using optimized queries with select_related and prefetch_related
+    root_messages = Message.objects.filter(
+        Q(sender=user) | Q(receiver=user),
+        parent_message__isnull=True
+    ).select_related(
+        'sender', 'receiver'
+    ).prefetch_related(
+        Prefetch('replies',
+                 queryset=Message.objects.select_related('sender', 'receiver'))
+    ).annotate(
+        reply_count=Count('replies')
+    ).order_by('-timestamp')
+    
+    context = {
+        'root_messages': root_messages,
+    }
+    
+    return render(request, 'messaging/all_conversations.html', context)
+
+
+@login_required
+def conversation_tree_json(request, message_id):
+    """
+    API endpoint to get conversation tree as JSON.
+    Uses recursive querying for nested replies.
+    
+    Args:
+        request: HTTP request object
+        message_id: UUID of any message in the thread
+    
+    Returns:
+        JSON response with conversation tree
+    """
+    message = get_object_or_404(Message, message_id=message_id)
+    root_message = message.get_thread_root()
+    
+    def serialize_tree(tree_node):
+        """Recursively serialize conversation tree."""
+        msg = tree_node['message']
+        return {
+            'message_id': str(msg.message_id),
+            'sender': msg.sender.username,
+            'receiver': msg.receiver.username,
+            'content': msg.content,
+            'timestamp': msg.timestamp.isoformat(),
+            'edited': msg.edited,
+            'is_reply': msg.is_reply(),
+            'replies': [serialize_tree(reply) for reply in tree_node['replies']]
+        }
+    
+    conversation_tree = Message.get_conversation_tree(root_message)
+    serialized_tree = serialize_tree(conversation_tree)
+    
+    return JsonResponse(serialized_tree)
