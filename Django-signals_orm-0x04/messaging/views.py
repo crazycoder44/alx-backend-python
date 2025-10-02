@@ -2,6 +2,7 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth import logout
 from django.contrib import messages
+from django.contrib.auth.models import User
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
 from django.db.models import Q, Prefetch, Count
@@ -388,3 +389,210 @@ def conversation_tree_json(request, message_id):
     serialized_tree = serialize_tree(conversation_tree)
     
     return JsonResponse(serialized_tree)
+
+
+@login_required
+def unread_messages(request):
+    """
+    View to display only unread messages for the logged-in user.
+    Uses custom UnreadMessagesManager and .only() for optimization.
+    
+    Args:
+        request: HTTP request object
+    
+    Returns:
+        Rendered template with unread messages
+    """
+    user = request.user
+    
+    # Use custom manager to get unread messages
+    # Optimize with .only() to retrieve only necessary fields
+    unread_msgs = Message.unread.unread_for_user(user).only(
+        'message_id',
+        'sender__username',
+        'content',
+        'timestamp',
+        'read',
+        'parent_message'
+    )
+    
+    # Get unread count
+    unread_count = Message.unread.unread_count_for_user(user)
+    
+    context = {
+        'unread_messages': unread_msgs,
+        'unread_count': unread_count,
+    }
+    
+    return render(request, 'messaging/unread_messages.html', context)
+
+
+@login_required
+def mark_message_read(request, message_id):
+    """
+    View to mark a specific message as read.
+    
+    Args:
+        request: HTTP request object
+        message_id: UUID of the message
+    
+    Returns:
+        Redirect or JSON response
+    """
+    message = get_object_or_404(Message, message_id=message_id, receiver=request.user)
+    message.mark_as_read()
+    
+    if request.headers.get('X-Requested-With') == 'XMLHttpRequest':
+        return JsonResponse({'status': 'success', 'message_id': str(message_id)})
+    
+    messages.success(request, 'Message marked as read.')
+    return redirect('messaging:unread_messages')
+
+
+@login_required
+def mark_all_read(request):
+    """
+    View to mark all messages as read for the current user.
+    Uses the custom manager's mark_all_read_for_user method.
+    
+    Args:
+        request: HTTP request object
+    
+    Returns:
+        Redirect with success message
+    """
+    count = Message.unread.mark_all_read_for_user(request.user)
+    
+    messages.success(request, f'{count} message(s) marked as read.')
+    return redirect('messaging:user_messages')
+
+
+@login_required
+def unread_by_sender(request, sender_username):
+    """
+    View to display unread messages from a specific sender.
+    Uses custom manager and .only() optimization.
+    
+    Args:
+        request: HTTP request object
+        sender_username: Username of the sender
+    
+    Returns:
+        Rendered template with unread messages from sender
+    """
+    sender = get_object_or_404(User, username=sender_username)
+    
+    # Use custom manager with .only() optimization
+    unread_msgs = Message.unread.unread_by_sender(
+        request.user, sender
+    ).only(
+        'message_id',
+        'sender__username',
+        'content',
+        'timestamp',
+        'read'
+    )
+    
+    context = {
+        'unread_messages': unread_msgs,
+        'sender': sender,
+        'unread_count': unread_msgs.count(),
+    }
+    
+    return render(request, 'messaging/unread_by_sender.html', context)
+
+
+@login_required
+def inbox(request):
+    """
+    View to display user's inbox with unread message count.
+    Uses optimized queries with .only() to minimize data transfer.
+    
+    Args:
+        request: HTTP request object
+    
+    Returns:
+        Rendered template with inbox
+    """
+    user = request.user
+    
+    # Get all received messages with optimization
+    received_messages = Message.objects.filter(
+        receiver=user
+    ).select_related('sender').only(
+        'message_id',
+        'sender__username',
+        'content',
+        'timestamp',
+        'read',
+        'edited'
+    ).order_by('-timestamp')[:50]  # Limit to last 50 messages
+    
+    # Get unread count using custom manager
+    unread_count = Message.unread.unread_count_for_user(user)
+    
+    # Get unread threads count
+    unread_threads = Message.unread.unread_threads_for_user(user).count()
+    
+    context = {
+        'received_messages': received_messages,
+        'unread_count': unread_count,
+        'unread_threads': unread_threads,
+    }
+    
+    return render(request, 'messaging/inbox.html', context)
+
+
+@login_required
+def unread_count_api(request):
+    """
+    API endpoint to get unread message count.
+    Useful for real-time updates via AJAX.
+    
+    Args:
+        request: HTTP request object
+    
+    Returns:
+        JSON response with unread count
+    """
+    user = request.user
+    unread_count = Message.unread.unread_count_for_user(user)
+    unread_threads = Message.unread.unread_threads_for_user(user).count()
+    
+    return JsonResponse({
+        'unread_count': unread_count,
+        'unread_threads': unread_threads,
+    })
+
+
+@login_required
+def message_preview_optimized(request):
+    """
+    View to display message previews with minimal data.
+    Uses .only() to fetch only essential fields.
+    
+    Args:
+        request: HTTP request object
+    
+    Returns:
+        Rendered template with message previews
+    """
+    user = request.user
+    
+    # Get messages with only preview fields
+    messages_preview = Message.objects.filter(
+        Q(sender=user) | Q(receiver=user)
+    ).only(
+        'message_id',
+        'sender__username',
+        'receiver__username',
+        'content',
+        'timestamp',
+        'read'
+    ).select_related('sender', 'receiver').order_by('-timestamp')[:20]
+    
+    context = {
+        'messages_preview': messages_preview,
+    }
+    
+    return render(request, 'messaging/message_preview.html', context)

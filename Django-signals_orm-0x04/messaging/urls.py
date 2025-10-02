@@ -13,6 +13,19 @@ urlpatterns = [
     # User's messages view
     path('my-messages/', views.user_messages, name='user_messages'),
     
+    # Inbox and unread messages views
+    path('inbox/', views.inbox, name='inbox'),
+    path('unread/', views.unread_messages, name='unread_messages'),
+    path('unread/<str:sender_username>/', views.unread_by_sender, name='unread_by_sender'),
+    path('mark-read/<uuid:message_id>/', views.mark_message_read, name='mark_message_read'),
+    path('mark-all-read/', views.mark_all_read, name='mark_all_read'),
+    
+    # Message preview with optimization
+    path('preview/', views.message_preview_optimized, name='message_preview'),
+    
+    # API endpoint for unread count
+    path('api/unread-count/', views.unread_count_api, name='unread_count_api'),
+    
     # Threaded conversation views
     path('conversation/<uuid:message_id>/', views.conversation_thread, name='conversation_thread'),
     path('conversations/', views.all_conversations, name='all_conversations'),

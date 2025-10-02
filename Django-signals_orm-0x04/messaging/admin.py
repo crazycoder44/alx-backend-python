@@ -19,19 +19,23 @@ class MessageHistoryInline(admin.TabularInline):
 @admin.register(Message)
 class MessageAdmin(admin.ModelAdmin):
     """
-    Admin interface for Message model with threading support.
+    Admin interface for Message model with threading and read status support.
     """
-    list_display = ['message_id', 'sender', 'receiver', 'content_preview', 'timestamp', 'edited', 'is_reply_display', 'reply_count_display']
-    list_filter = ['timestamp', 'edited', 'sender', 'receiver', 'parent_message']
+    list_display = ['message_id', 'sender', 'receiver', 'content_preview', 'timestamp', 'read', 'edited', 'is_reply_display', 'reply_count_display']
+    list_filter = ['timestamp', 'read', 'edited', 'sender', 'receiver', 'parent_message']
     search_fields = ['sender__username', 'receiver__username', 'content']
     readonly_fields = ['message_id', 'timestamp', 'edited', 'last_edited_at']
     date_hierarchy = 'timestamp'
     ordering = ['-timestamp']
     inlines = [MessageHistoryInline]
+    actions = ['mark_as_read', 'mark_as_unread']
     
     fieldsets = (
         ('Message Information', {
             'fields': ('message_id', 'sender', 'receiver', 'content')
+        }),
+        ('Status', {
+            'fields': ('read',)
         }),
         ('Threading', {
             'fields': ('parent_message',),
@@ -45,8 +49,13 @@ class MessageAdmin(admin.ModelAdmin):
     def content_preview(self, obj):
         """Display first 50 characters of content."""
         preview = obj.content[:50] + '...' if len(obj.content) > 50 else obj.content
+        badges = []
         if obj.edited:
-            return f"{preview} (edited)"
+            badges.append('edited')
+        if not obj.read:
+            badges.append('unread')
+        if badges:
+            return f"{preview} ({', '.join(badges)})"
         return preview
     
     content_preview.short_description = 'Content Preview'
@@ -64,6 +73,20 @@ class MessageAdmin(admin.ModelAdmin):
         return f"{count} replies" if count != 1 else f"{count} reply"
     
     reply_count_display.short_description = 'Replies'
+
+    def mark_as_read(self, request, queryset):
+        """Mark selected messages as read."""
+        updated = queryset.update(read=True)
+        self.message_user(request, f'{updated} message(s) marked as read.')
+    
+    mark_as_read.short_description = 'Mark selected messages as read'
+
+    def mark_as_unread(self, request, queryset):
+        """Mark selected messages as unread."""
+        updated = queryset.update(read=False)
+        self.message_user(request, f'{updated} message(s) marked as unread.')
+    
+    mark_as_unread.short_description = 'Mark selected messages as unread'
 
 
 @admin.register(MessageHistory)

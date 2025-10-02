@@ -1318,3 +1318,438 @@ class ThreadedConversationViewTestCase(TestCase):
         self.assertEqual(data['content'], 'Root')
         self.assertEqual(len(data['replies']), 1)
         self.assertEqual(data['replies'][0]['content'], 'Reply')
+
+
+class UnreadMessagesManagerTestCase(TestCase):
+    """
+    Test cases for custom UnreadMessagesManager.
+    """
+
+    def setUp(self):
+        """
+        Set up test users for unread message tests.
+        """
+        self.user1 = User.objects.create_user(
+            username='user1',
+            email='user1@example.com',
+            password='testpass123'
+        )
+        self.user2 = User.objects.create_user(
+            username='user2',
+            email='user2@example.com',
+            password='testpass123'
+        )
+        self.user3 = User.objects.create_user(
+            username='user3',
+            email='user3@example.com',
+            password='testpass123'
+        )
+
+    def test_unread_for_user(self):
+        """
+        Test getting unread messages for a specific user.
+        """
+        # Create messages
+        msg1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Message 1'
+        )
+        
+        msg2 = Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Message 2'
+        )
+        
+        msg3 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Message 3',
+            read=True
+        )
+        
+        # Get unread messages for user2
+        unread = Message.unread.unread_for_user(self.user2)
+        
+        self.assertEqual(unread.count(), 2)
+        self.assertIn(msg1, unread)
+        self.assertIn(msg2, unread)
+        self.assertNotIn(msg3, unread)
+
+    def test_unread_count_for_user(self):
+        """
+        Test getting count of unread messages.
+        """
+        # Initially no unread messages
+        self.assertEqual(Message.unread.unread_count_for_user(self.user2), 0)
+        
+        # Create unread messages
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Unread 1'
+        )
+        
+        Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Unread 2'
+        )
+        
+        # Create read message
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Read message',
+            read=True
+        )
+        
+        # Check count
+        self.assertEqual(Message.unread.unread_count_for_user(self.user2), 2)
+
+    def test_unread_by_sender(self):
+        """
+        Test getting unread messages from specific sender.
+        """
+        # Create messages from different senders
+        msg1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='From user1'
+        )
+        
+        Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='From user3'
+        )
+        
+        msg3 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='From user1 again'
+        )
+        
+        # Get unread from user1 only
+        unread_from_user1 = Message.unread.unread_by_sender(self.user2, self.user1)
+        
+        self.assertEqual(unread_from_user1.count(), 2)
+        self.assertIn(msg1, unread_from_user1)
+        self.assertIn(msg3, unread_from_user1)
+
+    def test_mark_all_read_for_user(self):
+        """
+        Test marking all messages as read for a user.
+        """
+        # Create unread messages
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Unread 1'
+        )
+        
+        Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Unread 2'
+        )
+        
+        # Verify unread count
+        self.assertEqual(Message.unread.unread_count_for_user(self.user2), 2)
+        
+        # Mark all as read
+        count = Message.unread.mark_all_read_for_user(self.user2)
+        
+        self.assertEqual(count, 2)
+        self.assertEqual(Message.unread.unread_count_for_user(self.user2), 0)
+
+    def test_unread_threads_for_user(self):
+        """
+        Test getting unread root messages (threads).
+        """
+        # Create root messages
+        root1 = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Root 1'
+        )
+        
+        root2 = Message.objects.create(
+            sender=self.user3,
+            receiver=self.user2,
+            content='Root 2',
+            read=True
+        )
+        
+        # Create reply (should not be in unread threads)
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Reply to root 1',
+            parent_message=root1
+        )
+        
+        # Get unread threads
+        unread_threads = Message.unread.unread_threads_for_user(self.user2)
+        
+        self.assertEqual(unread_threads.count(), 1)
+        self.assertIn(root1, unread_threads)
+        self.assertNotIn(root2, unread_threads)
+
+    def test_mark_as_read_method(self):
+        """
+        Test the mark_as_read instance method.
+        """
+        message = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Test message'
+        )
+        
+        self.assertFalse(message.read)
+        
+        message.mark_as_read()
+        message.refresh_from_db()
+        
+        self.assertTrue(message.read)
+
+    def test_mark_as_unread_method(self):
+        """
+        Test the mark_as_unread instance method.
+        """
+        message = Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Test message',
+            read=True
+        )
+        
+        self.assertTrue(message.read)
+        
+        message.mark_as_unread()
+        message.refresh_from_db()
+        
+        self.assertFalse(message.read)
+
+    def test_default_manager_still_works(self):
+        """
+        Test that the default manager still works alongside custom manager.
+        """
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Test'
+        )
+        
+        # Both managers should work
+        self.assertEqual(Message.objects.count(), 1)
+        self.assertEqual(Message.unread.unread_count_for_user(self.user2), 1)
+
+    def test_unread_messages_only_for_receiver(self):
+        """
+        Test that unread messages are only counted for receiver, not sender.
+        """
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Test'
+        )
+        
+        # user1 sent the message, should have 0 unread
+        self.assertEqual(Message.unread.unread_count_for_user(self.user1), 0)
+        
+        # user2 received the message, should have 1 unread
+        self.assertEqual(Message.unread.unread_count_for_user(self.user2), 1)
+
+    def test_orm_optimization_with_only(self):
+        """
+        Test that .only() optimization works with custom manager.
+        """
+        Message.objects.create(
+            sender=self.user1,
+            receiver=self.user2,
+            content='Test message'
+        )
+        
+        # Query with .only()
+        unread = Message.unread.unread_for_user(self.user2).only(
+            'message_id',
+            'content',
+            'timestamp'
+        )
+        
+        self.assertEqual(unread.count(), 1)
+        message = unread.first()
+        
+        # These fields should be accessible
+        self.assertIsNotNone(message.message_id)
+        self.assertIsNotNone(message.content)
+        self.assertIsNotNone(message.timestamp)
+
+
+class UnreadMessagesViewTestCase(TestCase):
+    """
+    Test cases for unread messages views.
+    """
+
+    def setUp(self):
+        """
+        Set up test client and users.
+        """
+        self.client = Client()
+        self.user1 = User.objects.create_user(
+            username='user1',
+            email='user1@example.com',
+            password='testpass123'
+        )
+        self.user2 = User.objects.create_user(
+            username='user2',
+            email='user2@example.com',
+            password='testpass123'
+        )
+
+    def test_unread_messages_view(self):
+        """
+        Test unread messages view displays correctly.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        # Create unread message
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Unread message'
+        )
+        
+        response = self.client.get(reverse('messaging:unread_messages'))
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('unread_messages', response.context)
+        self.assertEqual(response.context['unread_count'], 1)
+
+    def test_mark_message_read_view(self):
+        """
+        Test marking a message as read via view.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        message = Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Test message'
+        )
+        
+        self.assertFalse(message.read)
+        
+        response = self.client.get(
+            reverse('messaging:mark_message_read', args=[message.message_id])
+        )
+        
+        message.refresh_from_db()
+        self.assertTrue(message.read)
+
+    def test_mark_all_read_view(self):
+        """
+        Test marking all messages as read via view.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        # Create multiple unread messages
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Message 1'
+        )
+        
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Message 2'
+        )
+        
+        self.assertEqual(Message.unread.unread_count_for_user(self.user1), 2)
+        
+        response = self.client.get(reverse('messaging:mark_all_read'))
+        
+        self.assertEqual(Message.unread.unread_count_for_user(self.user1), 0)
+
+    def test_unread_by_sender_view(self):
+        """
+        Test viewing unread messages from specific sender.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        # Create messages from user2
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='From user2'
+        )
+        
+        response = self.client.get(
+            reverse('messaging:unread_by_sender', args=['user2'])
+        )
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('unread_messages', response.context)
+        self.assertEqual(response.context['sender'], self.user2)
+
+    def test_inbox_view(self):
+        """
+        Test inbox view with unread count.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        # Create messages
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Unread'
+        )
+        
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Read',
+            read=True
+        )
+        
+        response = self.client.get(reverse('messaging:inbox'))
+        
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['unread_count'], 1)
+        self.assertEqual(response.context['received_messages'].count(), 2)
+
+    def test_unread_count_api(self):
+        """
+        Test unread count API endpoint.
+        """
+        self.client.login(username='user1', password='testpass123')
+        
+        # Create unread messages
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Unread 1'
+        )
+        
+        Message.objects.create(
+            sender=self.user2,
+            receiver=self.user1,
+            content='Unread 2'
+        )
+        
+        response = self.client.get(reverse('messaging:unread_count_api'))
+        
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        
+        self.assertEqual(data['unread_count'], 2)
+
+    def test_unread_messages_requires_login(self):
+        """
+        Test that unread messages view requires authentication.
+        """
+        response = self.client.get(reverse('messaging:unread_messages'))
+        self.assertEqual(response.status_code, 302)  # Redirect to login

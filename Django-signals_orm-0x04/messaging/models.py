@@ -3,9 +3,93 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
+class UnreadMessagesManager(models.Manager):
+    """
+    Custom manager for filtering unread messages.
+    """
+    
+    def unread_for_user(self, user):
+        """
+        Get all unread messages for a specific user.
+        
+        Args:
+            user: User object to filter messages for
+            
+        Returns:
+            QuerySet of unread messages optimized with select_related
+        """
+        return self.get_queryset().filter(
+            receiver=user,
+            read=False
+        ).select_related('sender', 'receiver').order_by('-timestamp')
+    
+    def unread_count_for_user(self, user):
+        """
+        Get count of unread messages for a user.
+        
+        Args:
+            user: User object
+            
+        Returns:
+            Integer count of unread messages
+        """
+        return self.get_queryset().filter(
+            receiver=user,
+            read=False
+        ).count()
+    
+    def unread_by_sender(self, user, sender):
+        """
+        Get unread messages from a specific sender.
+        
+        Args:
+            user: Receiver user object
+            sender: Sender user object
+            
+        Returns:
+            QuerySet of unread messages from sender
+        """
+        return self.get_queryset().filter(
+            receiver=user,
+            sender=sender,
+            read=False
+        ).select_related('sender', 'receiver').order_by('-timestamp')
+    
+    def mark_all_read_for_user(self, user):
+        """
+        Mark all messages as read for a user.
+        
+        Args:
+            user: User object
+            
+        Returns:
+            Number of messages marked as read
+        """
+        return self.get_queryset().filter(
+            receiver=user,
+            read=False
+        ).update(read=True)
+    
+    def unread_threads_for_user(self, user):
+        """
+        Get unread messages that are root messages (start of threads).
+        
+        Args:
+            user: User object
+            
+        Returns:
+            QuerySet of unread root messages
+        """
+        return self.get_queryset().filter(
+            receiver=user,
+            read=False,
+            parent_message__isnull=True
+        ).select_related('sender', 'receiver').order_by('-timestamp')
+
+
 class Message(models.Model):
     """
-    Message model for storing user messages.
+    Message model for storing user messages with threading support.
     """
     message_id = models.UUIDField(
         primary_key=True,
@@ -29,7 +113,8 @@ class Message(models.Model):
     timestamp = models.DateTimeField(auto_now_add=True, db_index=True)
     edited = models.BooleanField(default=False)
     last_edited_at = models.DateTimeField(null=True, blank=True)
-
+    read = models.BooleanField(default=False, db_index=True)
+    
     # Self-referential foreign key for threaded conversations
     parent_message = models.ForeignKey(
         'self',
@@ -39,6 +124,12 @@ class Message(models.Model):
         related_name='replies',
         db_index=True
     )
+    
+    # Default manager
+    objects = models.Manager()
+    
+    # Custom manager for unread messages
+    unread = UnreadMessagesManager()
 
     class Meta:
         ordering = ['-timestamp']
@@ -48,11 +139,24 @@ class Message(models.Model):
             models.Index(fields=['-timestamp']),
             models.Index(fields=['sender', 'receiver']),
             models.Index(fields=['parent_message', '-timestamp']),
+            models.Index(fields=['receiver', 'read', '-timestamp']),
         ]
 
     def __str__(self):
         return f"Message from {self.sender.username} to {self.receiver.username} at {self.timestamp}"
+
+    def mark_as_read(self):
+        """Mark this message as read."""
+        if not self.read:
+            self.read = True
+            self.save(update_fields=['read'])
     
+    def mark_as_unread(self):
+        """Mark this message as unread."""
+        if self.read:
+            self.read = False
+            self.save(update_fields=['read'])
+
     def is_reply(self):
         """Check if this message is a reply to another message."""
         return self.parent_message is not None
@@ -146,7 +250,7 @@ class Message(models.Model):
             }
         
         return build_tree(root_message)
-    
+
 
 class MessageHistory(models.Model):
     """
@@ -181,7 +285,6 @@ class MessageHistory(models.Model):
 
     def __str__(self):
         return f"History for message {self.message.message_id} edited at {self.edited_at}"
-
 
 
 class Notification(models.Model):
