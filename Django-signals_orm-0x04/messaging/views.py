@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.models import User
 from django.http import JsonResponse
 from django.views.decorators.http import require_POST
+from django.views.decorators.cache import cache_page
 from django.db.models import Q, Prefetch, Count
 from .models import Message, MessageHistory
 
@@ -245,6 +246,7 @@ def user_data_summary(request):
 
 
 @login_required
+@cache_page(60)  # cache for 60 seconds
 def conversation_thread(request, message_id):
     """
     View to display a complete conversation thread.
@@ -321,6 +323,7 @@ def create_reply(request, parent_message_id):
 
 
 @login_required
+@cache_page(60)  # cache for 60 seconds
 def all_conversations(request):
     """
     View to display all root conversations with optimized queries.
