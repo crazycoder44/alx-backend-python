@@ -2,39 +2,77 @@ version: '3.9'
 
 services:
   db:
-    image: postgres:15
+    image: mysql:5.7
     container_name: messaging_db
     restart: always
     env_file:
       - .env
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      MYSQL_DB: ${MYSQL_DB}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
     ports:
-      - "5432:5432"
+      - "3306:3306"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+      - mysql_data:/var/lib/mysql
 
   web:
     build: .
     container_name: messaging_web
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    command: python3 manage.py runserver 0.0.0.0:8000
     ports:
       - "8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      - db
     env_file:
       - .env
     volumes:
       - .:/app
 
 volumes:
-  postgres_data:
+  mysql_data:
+
+
+
+
+# version: '3.9'
+
+# services:
+#   db:
+#     image: postgres:15
+#     container_name: messaging_db
+#     restart: always
+#     env_file:
+#       - .env
+#     environment:
+#       POSTGRES_DB: ${POSTGRES_DB}
+#       POSTGRES_USER: ${POSTGRES_USER}
+#       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+#     ports:
+#       - "5432:5432"
+#     volumes:
+#       - postgres_data:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+#       interval: 5s
+#       timeout: 5s
+#       retries: 5
+#       start_period: 10s
+
+#   web:
+#     build: .
+#     container_name: messaging_web
+#     command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+#     ports:
+#       - "8000:8000"
+#     depends_on:
+#       db:
+#         condition: service_healthy
+#     env_file:
+#       - .env
+#     volumes:
+#       - .:/app
+
+# volumes:
+#   postgres_data:
