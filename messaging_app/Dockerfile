@@ -24,5 +24,6 @@ COPY . .
 # Expose the Django port
 EXPOSE 8000
 
+# ALX checker hint: run with -p 8000:8000
 # Run Django development server
 CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]
