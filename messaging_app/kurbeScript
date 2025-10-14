@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# kurbeScript - start a minikube cluster, verify it, and list pods
+# place at messaging_app/kurbeScript and make executable: chmod +x kurbeScript
+
+set -euo pipefail
+
+print() { printf '%s\n' "$*"; }
+
+# Check required commands
+for cmd in minikube kubectl; do
+  if ! command -v "$cmd" >/dev/null 2>&1; then
+    print "ERROR: required command '$cmd' not found in PATH. Please install it and re-run."
+    exit 2
+  fi
+done
+
+# Driver selection: default to docker driver unless MINIKUBE_DRIVER env var set
+DRIVER="${MINIKUBE_DRIVER:-docker}"
+
+print "Using minikube driver: $DRIVER"
+print "Starting minikube..."
+minikube start --driver="$DRIVER"
+
+# Wait for kubectl cluster-info to succeed
+print "Waiting for cluster to be ready (checking kubectl cluster-info)..."
+RETRIES=30
+SLEEP=2
+for i in $(seq 1 $RETRIES); do
+  if kubectl cluster-info >/dev/null 2>&1; then
+    print "Cluster is up (kubectl cluster-info succeeded)."
+    break
+  fi
+  printf "Waiting... (%d/%d)\r" "$i" "$RETRIES"
+  sleep "$SLEEP"
+  if [ "$i" -eq "$RETRIES" ]; then
+    print ""
+    print "ERROR: cluster did not become ready within timeout."
+    minikube status || true
+    exit 3
+  fi
+done
+
+# Show cluster info
+print ""
+kubectl cluster-info
+
+# List pods (all namespaces)
+print ""
+print "Retrieving pods (all namespaces):"
+kubectl get pods --all-namespaces || print "Note: there may be no pods yet."
+
+print ""
+print "Done. To stop the cluster run: minikube stop"
