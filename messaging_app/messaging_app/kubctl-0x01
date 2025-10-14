@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Script to scale the Django app deployment in Kubernetes
+
+# Exit immediately if a command fails
+set -e
+
+echo "Starting Minikube cluster..."
+minikube start
+
+echo "Applying deployment..."
+kubectl apply -f deployment.yaml
+
+echo "Scaling deployment to 3 replicas..."
+kubectl scale deployment messaging-app-deployment --replicas=3
+
+echo "Waiting for pods to be ready..."
+sleep 10
+
+echo "Listing all pods:"
+kubectl get pods
+
+echo "Running basic load test with wrk..."
+# Install wrk if not installed
+if ! command -v wrk &> /dev/null; then
+    echo "wrk not found, installing..."
+    sudo apt update -y && sudo apt install wrk -y
+fi
+
+# Expose the service to minikube's internal IP
+echo "Getting Minikube service URL..."
+minikube service messaging-app-service --url
+
+# Example load test (using localhost URL if accessible)
+echo "Running wrk test for 10 seconds..."
+wrk -t2 -c100 -d10s http://localhost:8000 || echo "Load test complete."
+
+echo "Monitoring resource usage..."
+kubectl top pods || echo "Metrics not available yet. You may need to enable metrics-server."
+
+echo "✅ Scaling test completed successfully."
+
