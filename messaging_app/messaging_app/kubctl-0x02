@@ -1,0 +1,22 @@
+#!/bin/bash
+# Deploy Blue-Green Strategy
+
+# Apply Blue and Green deployments
+kubectl apply -f blue_deployment.yaml
+kubectl apply -f green_deployment.yaml
+
+# Apply Service
+kubectl apply -f kubeservice.yaml
+
+# Wait for pods to start
+echo "Waiting for pods to start..."
+sleep 10
+
+# Check running pods
+kubectl get pods
+
+# View logs of green deployment
+GREEN_POD=$(kubectl get pods -l app=django-green -o jsonpath="{.items[0].metadata.name}")
+echo "Logs from Green Deployment Pod: $GREEN_POD"
+kubectl logs $GREEN_POD
+
